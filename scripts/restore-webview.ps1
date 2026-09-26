@@ -10,7 +10,7 @@ if ((Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash -ne '5EA526BBD72
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [IO.Compression.ZipFile]::OpenRead($package)
 try {
-    foreach ($entry in @('lib/net462/Microsoft.Web.WebView2.Core.dll','lib/net462/Microsoft.Web.WebView2.WinForms.dll','runtimes/win-x86/native/WebView2Loader.dll')) {
+    foreach ($entry in @('lib/net462/Microsoft.Web.WebView2.Core.dll','runtimes/win-x86/native/WebView2Loader.dll')) {
         [IO.Compression.ZipFileExtensions]::ExtractToFile($zip.GetEntry($entry), (Join-Path $projectRoot ('build\' + [IO.Path]::GetFileName($entry))), $true)
     }
 } finally { $zip.Dispose() }

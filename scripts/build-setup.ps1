@@ -8,7 +8,7 @@ if (!$SkipBuild) {
 $buildRoot = Join-Path $projectRoot 'build'
 $stage = Join-Path $buildRoot ('setup-payload-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($stage) | Out-Null
-$names = @('BetterDownload.exe', 'BetterDownloadBridge.dll', 'TagLibSharp.dll', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll')
+$names = @('BetterDownload.exe', 'BetterDownloadBridge.dll', 'TagLibSharp.dll', 'Microsoft.Web.WebView2.Core.dll', 'WebView2Loader.dll')
 $notices = [ordered]@{
     'LICENSE.txt' = 'LICENSE'
     'THIRD-PARTY-NOTICES.md' = 'THIRD-PARTY-NOTICES.md'

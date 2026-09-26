@@ -125,8 +125,9 @@ namespace QqmBetterDownload {
                 Forms.Application.EnableVisualStyles(); Forms.Application.SetCompatibleTextRenderingDefault(false);
                 if (args.Length == 5 && args[0] == "--real-metadata") { RealMetadata(args[1], args[2], args[3], args[4]); return 0; }
                 string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test-runs", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
-                if (args.Length == 1 && args[0] == "--in-app") { BridgeTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " bridge and in-app assertions."); return 0; }
-                Notifications(); Metadata(folder); LegacyTests.Run(Check, folder); AutomaticTests.Run(Check, folder); Visuals(folder); BridgeTests.Run(Check, folder);
+                if (args.Length == 1 && args[0] == "--shutdown") { ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " shutdown assertions."); return 0; }
+                if (args.Length == 1 && args[0] == "--in-app") { BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " bridge and in-app assertions."); return 0; }
+                Notifications(); Metadata(folder); LegacyTests.Run(Check, folder); AutomaticTests.Run(Check, folder); Visuals(folder); BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder);
                 Console.WriteLine("PASS " + passed + " assertions; synthetic fixtures only."); return 0;
             } catch (Exception e) { Console.Error.WriteLine(e); return 1; }
         }

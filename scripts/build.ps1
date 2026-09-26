@@ -14,7 +14,7 @@ foreach ($assembly in @('PresentationFramework','PresentationCore','WindowsBase'
     $references += '/reference:' + (Join-Path $env:WINDIR ('Microsoft.NET\Framework\v4.0.30319\WPF\' + $assembly + '.dll'))
 }
 $references += '/reference:System.Xaml.dll'
-foreach ($assembly in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll')) { $references += '/reference:' + (Join-Path $buildRoot $assembly) }
+$references += '/reference:' + (Join-Path $buildRoot 'Microsoft.Web.WebView2.Core.dll')
 $references += '/resource:' + (Join-Path $projectRoot 'src\ui\settings.html') + ',settings.html'
 $references += '/win32manifest:' + (Join-Path $projectRoot 'src\app.manifest')
 if ($Tests) {

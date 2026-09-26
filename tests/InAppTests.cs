@@ -12,7 +12,7 @@ namespace QqmBetterDownload {
         [DllImport("user32")] static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
         [DllImport("user32")] static extern IntPtr GetForegroundWindow();
         static void Pump(int ms) { var watch = Stopwatch.StartNew(); while (watch.ElapsedMilliseconds < ms) { Application.DoEvents(); Thread.Sleep(10); } }
-        static void Until(Func<bool> ready) { var watch = Stopwatch.StartNew(); while (!ready()) { if (watch.ElapsedMilliseconds > 20000) throw new Exception("HTML integration timed out."); Pump(20); } }
+        static void Until(Func<bool> ready, int timeout = 20000) { var watch = Stopwatch.StartNew(); while (!ready()) { if (watch.ElapsedMilliseconds > timeout) throw new Exception("HTML integration timed out."); Pump(20); } }
         static string Script(AppWindow page, string script) { var work = page.EvaluateHtml(script); Until(() => work.IsCompleted); return work.GetAwaiter().GetResult(); }
         static bool ChildInside(IntPtr child, IntPtr parent) {
             ClientUi.Rect a, b; ClientUi.GetWindowRect(child, out a); ClientUi.GetClientRect(parent, out b);
@@ -58,7 +58,8 @@ namespace QqmBetterDownload {
                 check(ClientUi.GetParent(page.Handle) == window && (ClientUi.GetWindowLong(page.Handle, -16) & ClientUi.Child) != 0, "settings must be embedded in the client");
                 check(!page.TopLevel && !page.ShowInTaskbar && (ClientUi.GetWindowLong(page.Handle, -20) & 8) == 0, "settings must not become another application window");
                 check(ChildInside(page.Handle, window), "settings must fit in client content area");
-                check(page.Controls[0].Width <= page.ClientSize.Width && page.Controls[0].Height <= page.ClientSize.Height, "settings controls must respect parent DPI without growing beyond the panel");
+                var html = page.Controls.OfType<HtmlHost>().Single();
+                check(html.Width <= page.ClientSize.Width && html.Height <= page.ClientSize.Height, "settings controls must respect parent DPI without growing beyond the panel");
                 check(Script(page, "document.body.dataset.ready === 'true' && document.querySelectorAll('input').length === 0") == "true", "HTML renders without manual path inputs");
                 check(Script(page, "document.documentElement.scrollWidth <= innerWidth") == "true", "HTML must not overflow horizontally");
                 Script(page, "document.querySelector('[data-toggle]').click()"); Pump(200);
@@ -68,8 +69,9 @@ namespace QqmBetterDownload {
                 Script(page, "document.querySelector('[data-toggle]').click(); document.querySelector('[data-card-style] [data-value=standard]').click()"); Pump(200);
                 Script(page, "document.querySelector('[data-scan]').click()"); Pump(250);
                 check(Script(page, "document.querySelector('[data-scan-note]').textContent.includes('预览模式')") == "true", "scan action must show its result in the existing scan row");
-                Script(page, "document.querySelector('[data-preview]').click()"); Pump(650);
-                check(page.CardPresented && ClientUi.IsWindowVisible(page.Handle), "HTML preview must show the embedded card while settings remain open");
+                Script(page, "document.querySelector('[data-preview]').click()");
+                Until(() => page.CardPresented || !String.IsNullOrEmpty(page.CardError) || page.HtmlError.Length > 0, 3000); Pump(200);
+                check(page.CardPresented && ClientUi.IsWindowVisible(page.Handle), "HTML preview must show the embedded card while settings remain open; card=" + page.CardPresented + "; settings=" + ClientUi.IsWindowVisible(page.Handle) + "; render=" + page.CardError + "; html=" + page.HtmlError);
                 var capture = page.CaptureHtml(Path.Combine(folder, "embedded-settings.png")); Until(() => capture.IsCompleted); capture.GetAwaiter().GetResult();
                 check(new FileInfo(Path.Combine(folder, "embedded-settings.png")).Length > 15000, "real HTML capture must render settings content");
                 Script(page, "document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))"); Pump(100);

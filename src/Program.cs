@@ -9,7 +9,7 @@ using System.Diagnostics;
 
 namespace QqmBetterDownload {
     public static class Program {
-        public const string Version = "0.1.0";
+        public const string Version = "0.1.1";
         public static string DataFolder { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QQM-BetterDownload"); } }
         public static string DefaultRoot() {
             string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");

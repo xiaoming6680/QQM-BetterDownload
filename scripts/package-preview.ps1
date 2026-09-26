@@ -12,7 +12,7 @@ $stage = Join-Path $buildRoot ('package-preview-' + [Guid]::NewGuid().ToString('
 $dist = Join-Path $projectRoot 'dist'
 [IO.Directory]::CreateDirectory($stage) | Out-Null
 [IO.Directory]::CreateDirectory($dist) | Out-Null
-foreach ($name in @('BetterDownload.exe','qqm-cli.exe','BetterDownload-Setup.exe','BetterDownloadBridge.dll','TagLibSharp.dll','Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll')) {
+foreach ($name in @('BetterDownload.exe','qqm-cli.exe','BetterDownload-Setup.exe','BetterDownloadBridge.dll','TagLibSharp.dll','Microsoft.Web.WebView2.Core.dll','WebView2Loader.dll')) {
     Copy-Item -LiteralPath (Join-Path $buildRoot $name) -Destination (Join-Path $stage $name)
 }
 # Copy only audited Git candidates, including corresponding source and licenses.
@@ -31,6 +31,7 @@ $manifest = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object Ful
     [ordered]@{ path = $_.FullName.Substring($stage.Length + 1).Replace('\', '/'); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
 })
 $manifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $stage 'SHA256.json') -Encoding utf8
-$archive = Join-Path $dist 'QQM-BetterDownload-0.1.0-preview.zip'
+$version = [regex]::Match([IO.File]::ReadAllText((Join-Path $projectRoot 'src\Program.cs')), 'Version = "([0-9.]+)"').Groups[1].Value
+$archive = Join-Path $dist ('QQM-BetterDownload-' + $version + '-preview.zip')
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
 [ordered]@{ path = $archive; bytes = (Get-Item -LiteralPath $archive).Length; sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash } | ConvertTo-Json

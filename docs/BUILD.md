@@ -28,6 +28,8 @@ Get-Content .\build\setup-tests.txt
 
 退出码应为 0。安装器是 `build/BetterDownload-Setup.exe`，双击后点击“安装 / 修复”。命令行安装使用 `--install`。
 
+单独复测退出流程可运行 `build/tests.exe --shutdown`；测试只关闭自己创建的宿主和浏览器，不操作 QQ 音乐。HTML 由公开 WebView2 控制器承载，程序自行管理其创建与关闭。
+
 QQ 音乐正在运行时，新版本会先暂存，客户端退出后切换。不要强制替换 QQ 音乐正在使用的 DLL，也不要用编译成功代替真实应用验收。
 
 ## 更新文档图片

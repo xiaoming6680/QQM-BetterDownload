@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Web.Script.Serialization;
 using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.WinForms;
 using Timer = System.Windows.Forms.Timer;
 
 namespace QqmBetterDownload {
@@ -28,7 +27,7 @@ namespace QqmBetterDownload {
         readonly bool preview;
         readonly AutomaticPaths paths;
         readonly ClientLayout clientLayout;
-        readonly WebView2 web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(247,249,248) };
+        readonly HtmlHost web = new HtmlHost { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(247,249,248) };
         readonly Label loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Text = "正在打开 BetterDownload…", ForeColor = Color.FromArgb(90,122,105) };
         readonly NotifyIcon tray = new NotifyIcon();
         readonly Timer ipcTimer = new Timer { Interval = 200 }, parentTimer = new Timer { Interval = 100 }, demoTimer = new Timer { Interval = 1400 };
@@ -39,11 +38,13 @@ namespace QqmBetterDownload {
         WorkStatus latest;
         string lastOutput = "", problem = "", webData = "", htmlPhase = "等待页面容器", scanNote = "";
         int generation, completed, failed;
-        bool runtimeStarted, closing, exitRequested, initializing, htmlReady;
+        bool runtimeStarted, closing, nativeEnding, exitRequested, initializing, htmlReady;
         EventHandler demoDone;
         internal bool HtmlReady { get { return htmlReady; } }
         internal bool CardPresented { get { return card is InAppCard && ((InAppCard)card).IsPresented; } }
+        internal string CardError { get { return card is InAppCard ? ((InAppCard)card).LastError : ""; } }
         internal string HtmlError { get { return problem; } }
+        bool Ending { get { return closing || nativeEnding || IsDisposed || Disposing; } }
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams {
             get {
@@ -59,6 +60,15 @@ namespace QqmBetterDownload {
         protected override void CreateHandle() {
             if (clientWindow == IntPtr.Zero) { base.CreateHandle(); return; }
             using (new ClientUi.DpiScope(clientWindow)) { base.CreateHandle(); ClientUi.RequireChild(Handle, clientWindow); }
+        }
+        protected override void WndProc(ref Message message) {
+            // WM_DESTROY arrives before children are destroyed. Stop callbacks
+            // and close our browser while the container still has its HWND.
+            if (message.Msg == 0x0002 && !RecreatingHandle) {
+                nativeEnding = true; htmlReady = false;
+                ipcTimer.Stop(); demoTimer.Stop(); web.Shutdown();
+            }
+            base.WndProc(ref message);
         }
         protected override void SetVisibleCore(bool value) {
             if (parent != null && !preview && !runtimeStarted && value) {
@@ -96,6 +106,12 @@ namespace QqmBetterDownload {
             if (parent != null) { TopLevel = false; FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; MinimumSize = Size.Empty; StartPosition = FormStartPosition.Manual; }
             card = parent == null ? (ICardPresenter)new ProgressCard(() => IntPtr.Zero, OpenOutput) : new InAppCard(clientWindow, OpenOutput);
             ConfigureCard();
+            web.BrowserClosed += delegate {
+                htmlReady = false;
+                if (Ending) return;
+                if (parent != null && (parent.HasExited || !ClientUi.IsWindow(clientWindow))) { exitRequested = true; Close(); return; }
+                problem = "设置页面已关闭，请重新打开 QQ 音乐。"; loading.Text = problem; loading.Show(); loading.BringToFront();
+            };
             Controls.Add(web); Controls.Add(loading); loading.BringToFront();
             tray.Text = "BetterDownload"; tray.Icon = SystemIcons.Application;
             var menu = new ContextMenuStrip(); menu.Items.Add("在 QQ 音乐中打开设置", null, delegate { Restore(); });
@@ -103,10 +119,12 @@ namespace QqmBetterDownload {
             tray.ContextMenuStrip = menu; tray.DoubleClick += delegate { Restore(); };
             Shown += delegate { if (!preview && !runtimeStarted) { runtimeStarted = true; StartRuntime(); } };
             parentTimer.Tick += delegate {
-                if (parent != null && (parent.HasExited || !ClientUi.IsWindow(clientWindow))) { exitRequested = true; Close(); }
+                if (closing || IsDisposed || Disposing) return;
+                if (nativeEnding || (parent != null && (parent.HasExited || !ClientUi.IsWindow(clientWindow)))) { exitRequested = true; Close(); }
                 else { if (clientLayout != null) clientLayout.Refresh(); if (Visible) PositionInClient(); }
             };
             ipcTimer.Tick += delegate {
+                if (Ending) return;
                 if (stopRequest != null && stopRequest.WaitOne(0)) { exitRequested = true; Close(); return; }
                 if (settingsRequest != null && settingsRequest.WaitOne(0)) { if (Visible) Hide(); else Restore(); }
             };
@@ -116,17 +134,17 @@ namespace QqmBetterDownload {
                 Cleanup();
             };
         }
-        void StartRuntime() { if (settings.Enabled) Start(); else Publish(); if (parent != null) { tray.Visible = true; parentTimer.Start(); } }
+        void StartRuntime() { if (Ending) return; if (settings.Enabled) Start(); else Publish(); if (parent != null) { tray.Visible = true; parentTimer.Start(); } }
         async void InitializeHtml() {
-            if (initializing || closing || IsDisposed) return; initializing = true;
+            if (initializing || Ending || web.IsDisposed) return; initializing = true;
             try {
                 webData = preview ? Path.Combine(Path.GetTempPath(), "BetterDownload-Preview", Guid.NewGuid().ToString("N")) : Path.Combine(Program.DataFolder, "webview");
                 htmlPhase = "初始化网页运行环境";
                 var environment = await CoreWebView2Environment.CreateAsync(null, webData);
-                if (closing || IsDisposed) return;
-                htmlPhase = "创建网页控件"; await web.EnsureCoreWebView2Async(environment);
-                if (closing || IsDisposed) return;
-                var core = web.CoreWebView2;
+                if (Ending || web.IsDisposed) return;
+                htmlPhase = "创建网页控件"; await web.EnsureReady(environment);
+                if (Ending || web.IsDisposed || web.Core == null) return;
+                var core = web.Core;
                 htmlPhase = "载入内置页面";
                 core.Settings.AreDefaultContextMenusEnabled = false; core.Settings.AreDevToolsEnabled = preview;
                 core.Settings.IsStatusBarEnabled = false; core.Settings.IsZoomControlEnabled = false;
@@ -134,15 +152,16 @@ namespace QqmBetterDownload {
                 core.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Light;
                 bool firstNavigation = true;
                 core.NavigationStarting += delegate(object sender, CoreWebView2NavigationStartingEventArgs e) {
+                    if (Ending) return;
                     // NavigateToString reports a data: URI during startup; the
                     // resulting document's source and message origin are about:blank.
                     if (firstNavigation) { firstNavigation = false; return; }
                     e.Cancel = true;
                 };
-                core.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs e) { if (!e.IsSuccess) { problem = "内置页面加载失败：" + e.WebErrorStatus; loading.Text = problem; } else htmlPhase = "等待页面就绪消息"; };
-                core.NewWindowRequested += delegate(object sender, CoreWebView2NewWindowRequestedEventArgs e) { e.Handled = true; };
+                core.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs e) { if (Ending) return; if (!e.IsSuccess) { problem = "内置页面加载失败：" + e.WebErrorStatus; loading.Text = problem; } else htmlPhase = "等待页面就绪消息"; };
+                core.NewWindowRequested += delegate(object sender, CoreWebView2NewWindowRequestedEventArgs e) { if (!Ending) e.Handled = true; };
                 core.WebMessageReceived += delegate(object sender, CoreWebView2WebMessageReceivedEventArgs e) {
-                    if (e.Source != "about:blank") return;
+                    if (Ending || e.Source != "about:blank") return;
                     try {
                         var request = json.Deserialize<Dictionary<string,object>>(e.WebMessageAsJson); object value;
                         if (request == null || !request.TryGetValue("action", out value) || !(value is string)) return;
@@ -152,11 +171,13 @@ namespace QqmBetterDownload {
                 using (var stream = typeof(AppWindow).Assembly.GetManifestResourceStream("settings.html"))
                 using (var reader = new StreamReader(stream)) core.NavigateToString(reader.ReadToEnd());
             } catch (Exception e) {
+                if (Ending) return;
                 problem = "设置页未能加载：" + e.Message; loading.Text = problem + "\n自动转换仍会在后台运行。";
                 initializing = false;
             }
         }
         void HandleAction(string action, string value) {
+            if (Ending) return;
             if (action == "ready") { htmlReady = true; loading.Hide(); Publish(); return; }
             if (!htmlReady) return;
             if (action == "close") { Hide(); return; }
@@ -191,6 +212,7 @@ namespace QqmBetterDownload {
             try { BeginInvoke((Action)delegate { if (!closing && stamp == generation) UpdateStatus(status); }); } catch (InvalidOperationException) { }
         }
         void UpdateStatus(WorkStatus status) {
+            if (Ending) return;
             latest = status;
             if (status.State == "scanning" || status.State == "scan-complete") scanNote = status.Message;
             if (!preview) card.Receive(status);
@@ -205,10 +227,10 @@ namespace QqmBetterDownload {
             Publish();
         }
         void Publish() {
-            if (!htmlReady || closing || web.CoreWebView2 == null) return;
+            if (!htmlReady || Ending || web.IsDisposed || web.Core == null) return;
             var roots = preview ? new[] { settings.Root } : paths.Roots;
             string message = !settings.Enabled ? "已关闭" : latest == null || latest.State == "watching" || latest.State == "success" || latest.State == "skipped" || latest.State == "scan-complete" ? "已启用 · 下载完成后自动转换" : latest.Message;
-            web.CoreWebView2.PostWebMessageAsJson(json.Serialize(new {
+            web.PostJson(json.Serialize(new {
                 version = Program.Version, enabled = settings.Enabled, notify = settings.Notify, style = settings.CardStyle, stay = settings.CardStay,
                 message = message, state = latest == null ? "" : latest.State,
                 count = completed + failed == 0 ? "" : "本次完成 " + completed + " 首" + (failed > 0 ? " · " + failed + " 首待处理" : ""),
@@ -218,6 +240,7 @@ namespace QqmBetterDownload {
             }));
         }
         public void PreviewCard() {
+            if (Ending) return;
             demoTimer.Stop(); if (demoDone != null) demoTimer.Tick -= demoDone;
             var sample = new WorkStatus { Id = "preview-" + Guid.NewGuid().ToString("N"), Source = "示例歌曲.mflac", State = "converting", Percent = 64, Message = "正在转换", Track = new TrackInfo { Title = "夜间来信", Artist = "示例歌手", Format = "FLAC" } };
             card.Receive(sample, true);
@@ -238,12 +261,13 @@ namespace QqmBetterDownload {
             }
         }
         internal void Restore() {
+            if (Ending) return;
             if (parent != null) { PositionInClient(); Show(); PositionInClient(); BringToFront(); parentTimer.Start(); Publish(); return; }
             Show(); Publish();
         }
-        internal Task<string> EvaluateHtml(string script) { return web.CoreWebView2.ExecuteScriptAsync(script); }
+        internal Task<string> EvaluateHtml(string script) { return web.Evaluate(script); }
         internal Task CaptureHtml(string file) { return CapturePage(file); }
-        async Task CapturePage(string file) { using (var output = File.Create(file)) await web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, output); }
+        async Task CapturePage(string file) { using (var output = File.Create(file)) await web.CapturePage(output); }
         internal void PreparePreview() {
             if (!preview) throw new InvalidOperationException("仅预览可使用示例数据。");
             UpdateStatus(new WorkStatus { State = "success", Message = "转换完成", Source = "示例歌曲.mflac", Output = @"D:\Music\VipSongsDownload\unlock\示例歌曲.flac", Percent = 100 });
@@ -257,8 +281,9 @@ namespace QqmBetterDownload {
             var capture = CapturePage(path); while (!capture.IsCompleted) { Application.DoEvents(); Thread.Sleep(10); } capture.GetAwaiter().GetResult(); Close();
         }
         void Cleanup() {
-            if (closing) return; closing = true;
-            ipcTimer.Stop(); parentTimer.Stop(); demoTimer.Stop(); Stop(); card.Dispose(); tray.Visible = false;
+            if (closing) return; closing = true; htmlReady = false;
+            ipcTimer.Stop(); parentTimer.Stop(); demoTimer.Stop();
+            web.Shutdown(); Stop(); card.Dispose(); tray.Visible = false;
             if (alive != null) alive.Reset();
         }
         protected override void Dispose(bool disposing) {
