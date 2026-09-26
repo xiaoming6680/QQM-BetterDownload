@@ -11,15 +11,16 @@
 #include <wchar.h>
 #include <stdio.h>
 #include <string.h>
+#include "gf_ui.h"
 
 #define CAP 2048
 #define QCAP 1024
 #define SUBCLASS_ID 0x4244
 #define MENU_ID 0x1bd0
 static HINSTANCE instance;
-static HWND main_window, button, tooltip;
+static HWND main_window;
 static UINT attach_message, detach_message;
-static volatile LONG started, enabled, visual;
+static volatile LONG started, enabled;
 static CRITICAL_SECTION gate;
 static HANDLE wake;
 static WCHAR *queue[QCAP], spool[CAP];
@@ -128,86 +129,40 @@ static DWORD WINAPI worker(LPVOID ignored) {
         WaitForSingleObject(wake,1000);
     }
 }
-static int scale(int value){typedef UINT (WINAPI *DPI)(HWND);DPI dpi=(DPI)GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow");UINT n=dpi?dpi(main_window):96;return MulDiv(value,n?n:96,96);}
-static void draw_icon(void) {
-    if(!button)return;
-    int side=scale(32);HDC dc=CreateCompatibleDC(NULL);BITMAPINFO bi={0};void *pixels=NULL;
-    bi.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);bi.bmiHeader.biWidth=side;bi.bmiHeader.biHeight=-side;bi.bmiHeader.biPlanes=1;bi.bmiHeader.biBitCount=32;
-    HBITMAP bitmap=CreateDIBSection(dc,&bi,DIB_RGB_COLORS,&pixels,NULL,0);
-    if(!dc||!bitmap||!pixels){if(bitmap)DeleteObject(bitmap);if(dc)DeleteDC(dc);return;}
-    ZeroMemory(pixels,(SIZE_T)side*side*4);HGDIOBJ oldbitmap=SelectObject(dc,bitmap);
-    HPEN pen=CreatePen(PS_SOLID,scale(2),RGB(0,167,115));HGDIOBJ oldpen=SelectObject(dc,pen),oldbrush=SelectObject(dc,GetStockObject(NULL_BRUSH));
-    int cx=side/2,cy=side/2;
-    RoundRect(dc,cx-scale(9),cy-scale(9),cx+scale(9),cy+scale(9),scale(7),scale(7));
-    MoveToEx(dc,cx,cy-scale(5),NULL);LineTo(dc,cx,cy+scale(4));
-    MoveToEx(dc,cx-scale(4),cy,NULL);LineTo(dc,cx,cy+scale(4));LineTo(dc,cx+scale(4),cy);
-    DWORD *rgba=(DWORD*)pixels;for(int i=0;i<side*side;i++)if(rgba[i]&0xffffff)rgba[i]|=0xff000000;
-    RECT r;GetWindowRect(button,&r);POINT dest={r.left,r.top},source={0,0};SIZE size={side,side};BLENDFUNCTION blend={AC_SRC_OVER,0,255,AC_SRC_ALPHA};
-    if(UpdateLayeredWindow(button,NULL,&dest,&size,dc,&source,0,&blend,ULW_ALPHA))RemovePropW(main_window,L"BetterDownload.IconError");
-    else SetPropW(main_window,L"BetterDownload.IconError",(HANDLE)(ULONG_PTR)GetLastError());
-    SelectObject(dc,oldpen);SelectObject(dc,oldbrush);SelectObject(dc,oldbitmap);DeleteObject(pen);DeleteObject(bitmap);DeleteDC(dc);
-}
 static void open_settings(void) {
     HWND settings=FindWindowW(NULL,L"BetterDownload");DWORD pid=0;if(settings)GetWindowThreadProcessId(settings,&pid);if(pid)AllowSetForegroundWindow(pid);
     HANDLE evt=OpenEventW(EVENT_MODIFY_STATE,FALSE,L"Local\\QQM-BetterDownload.Settings");if(evt){SetEvent(evt);CloseHandle(evt);}
 }
-static void layout(void) {
-    if(!button)return;RECT r;GetClientRect(main_window,&r);
-    BOOL show=visual && r.right>=scale(980) && r.bottom>=scale(400) && !IsIconic(main_window);
-    if(show){
-        RECT previous;GetWindowRect(button,&previous);POINT origin={previous.left,previous.top};ScreenToClient(main_window,&origin);
-        int x=r.right-scale(232),y=scale(22),side=scale(32);
-        if(!IsWindowVisible(button)||origin.x!=x||origin.y!=y||previous.right-previous.left!=side){
-            SetWindowPos(button,HWND_TOP,x,y,side,side,SWP_NOACTIVATE|SWP_SHOWWINDOW);draw_icon();
-        }
-    }else ShowWindow(button,SW_HIDE);
-}
-static LRESULT CALLBACK icon_proc(HWND w,UINT m,WPARAM a,LPARAM b) {
-    switch(m){
-    case WM_LBUTTONUP:open_settings();return 0;
-    case WM_KEYDOWN:if(a==VK_SPACE || a==VK_RETURN){open_settings();return 0;}break;
-    case WM_SETCURSOR:SetCursor(LoadCursorW(NULL,IDC_HAND));return TRUE;
-    case WM_GETDLGCODE:return DLGC_BUTTON;
-    case WM_ERASEBKGND:return 1;
-    case WM_PAINT:{
-        PAINTSTRUCT ps;BeginPaint(w,&ps);EndPaint(w,&ps);draw_icon();return 0;
-    }
-    case WM_SETFOCUS:case WM_KILLFOCUS:InvalidateRect(w,NULL,FALSE);break;
-    }
-    return DefWindowProcW(w,m,a,b);
-}
 static void ui_attach(HWND w,BOOL show_icon) {
-    main_window=w;visual=show_icon;
-    SetWindowSubclass(w,main_proc,SUBCLASS_ID,0);
-    if(!button){
-        WNDCLASSW c={0};c.lpfnWndProc=icon_proc;c.hInstance=instance;c.lpszClassName=L"BetterDownload.Entry";RegisterClassW(&c);
-        button=CreateWindowExW(WS_EX_LAYERED,c.lpszClassName,L"BetterDownload 设置",WS_CHILD|WS_TABSTOP,0,0,0,0,w,NULL,instance,NULL);
-        tooltip=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,NULL,WS_POPUP|TTS_ALWAYSTIP,0,0,0,0,w,NULL,instance,NULL);
-        if(tooltip&&button){TOOLINFOW info={0};info.cbSize=sizeof(info);info.uFlags=TTF_IDISHWND|TTF_SUBCLASS;info.hwnd=w;info.uId=(UINT_PTR)button;info.lpszText=L"BetterDownload 设置";SendMessageW(tooltip,TTM_ADDTOOLW,0,(LPARAM)&info);}
-        HMENU menu=GetSystemMenu(w,FALSE);if(menu && GetMenuState(menu,MENU_ID,MF_BYCOMMAND)==(UINT)-1)AppendMenuW(menu,MF_STRING,MENU_ID,L"BetterDownload 设置");
-    }
-    layout();SetPropW(w,L"BetterDownload.Bridge",(HANDLE)1);InterlockedExchange(&enabled,1);SetEvent(wake);
+    (void)show_icon; // The worker initializes the fingerprint-gated GF adapter.
+    main_window=w;SetWindowSubclass(w,main_proc,SUBCLASS_ID,0);
+    HMENU menu=GetSystemMenu(w,FALSE);if(menu && GetMenuState(menu,MENU_ID,MF_BYCOMMAND)==(UINT)-1)AppendMenuW(menu,MF_STRING,MENU_ID,L"BetterDownload 设置");
+    SetPropW(w,L"BetterDownload.Bridge",(HANDLE)1);InterlockedExchange(&enabled,1);SetEvent(wake);
 }
 static void detach(HWND w) {
+    bd_ui_close(w);
     InterlockedExchange(&enabled,0);SetEvent(wake);
-    if(tooltip){DestroyWindow(tooltip);tooltip=NULL;}if(button){DestroyWindow(button);button=NULL;}
     HMENU menu=GetSystemMenu(w,FALSE);if(menu)DeleteMenu(menu,MENU_ID,MF_BYCOMMAND);
-    RemovePropW(w,L"BetterDownload.Bridge");RemovePropW(w,L"BetterDownload.Imports");RemovePropW(w,L"BetterDownload.QueueOverflow");
+    RemovePropW(w,L"BetterDownload.Bridge");RemovePropW(w,L"BetterDownload.Imports");RemovePropW(w,L"BetterDownload.QueueOverflow");RemovePropW(w,L"BetterDownload.Entry");RemovePropW(w,L"BetterDownload.IconError");
     RemoveWindowSubclass(w,main_proc,SUBCLASS_ID);InvalidateRect(w,NULL,FALSE);
 }
 static LRESULT CALLBACK main_proc(HWND w,UINT m,WPARAM a,LPARAM b,UINT_PTR id,DWORD_PTR ref) {
     (void)id;(void)ref;
     if(m==detach_message){detach(w);return 0;}
+    if(m==WM_COPYDATA && b && ((COPYDATASTRUCT*)b)->dwData==BD_UI_PACKET)return bd_ui_command(w,(HWND)a,(COPYDATASTRUCT*)b,instance);
+    if(m==WM_TIMER && a==BD_UI_TIMER){bd_ui_tick(w);return 0;}
+    if(m==WM_NCHITTEST){POINT p={(short)LOWORD(b),(short)HIWORD(b)};if(bd_ui_entry_hit(w,p))return HTCLIENT;}
+    if(m==WM_SETCURSOR){POINT p;if(GetCursorPos(&p)&&bd_ui_entry_hit(w,p)){SetCursor(LoadCursorW(NULL,IDC_HAND));return TRUE;}}
     if(m==WM_SYSCOMMAND && (a&0xfff0)==MENU_ID){open_settings();return 0;}
     if(m==WM_NCDESTROY)detach(w);
     LRESULT result=DefSubclassProc(w,m,a,b);
-    if(m==WM_SIZE || m==WM_DPICHANGED || m==WM_WINDOWPOSCHANGED)layout();
     return result;
 }
 __declspec(dllexport) LRESULT CALLBACK BetterDownloadHook(int code,WPARAM a,LPARAM b) {
     if(!attach_message){attach_message=RegisterWindowMessageW(L"BetterDownload.Attach.v1");detach_message=RegisterWindowMessageW(L"BetterDownload.Detach.v1");}
     if(code==HC_ACTION && a==PM_REMOVE){
         MSG *msg=(MSG*)b;
+        if(bd_ui_message(msg)){msg->message=WM_NULL;msg->wParam=msg->lParam=0;}
         if(msg->message==attach_message){
             WCHAR path[CAP];GetModuleFileNameW(NULL,path,CAP);WCHAR *name=wcsrchr(path,L'\\');
             BOOL valid=name&&!_wcsicmp(name+1,L"QQMusic.exe");

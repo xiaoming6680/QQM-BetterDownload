@@ -58,11 +58,12 @@ namespace QqmBetterDownload {
             CardPreview.Save(Path.Combine(folder, "cards.png"), 1);
             Check(new FileInfo(Path.Combine(folder, "cards.png")).Length > 10000, "native preview was not rendered");
             Check(CardView.LoadArt(new byte[] { 0, 1, 2, 3 }) == null, "bad cover should safely fall back");
-            IntPtr foreground = GetForegroundWindow();
             using (var card = new ProgressCard(() => IntPtr.Zero, path => { })) {
                 card.Configure("all", false, 2000); card.Receive(Status("native", "converting", 64)); Forms.Application.DoEvents();
                 Check(card.IsVisible, "native notification not visible");
-                Check(GetForegroundWindow() == foreground, "notification stole foreground focus");
+                // The user can switch other apps while this fixture runs.
+                // Only activation of our notification is a product failure.
+                Check(GetForegroundWindow() != new System.Windows.Interop.WindowInteropHelper(card).Handle && !card.IsActive, "notification stole foreground focus");
                 card.Dismiss(); Check(!card.IsVisible, "notification did not hide");
                 card.Receive(Status("native", "converting", 80)); Check(!card.IsVisible, "native progress resurrected dismissed card");
                 card.Receive(Status("native", "success", 100)); Check(card.IsVisible, "native completion did not appear");
@@ -125,9 +126,11 @@ namespace QqmBetterDownload {
                 Forms.Application.EnableVisualStyles(); Forms.Application.SetCompatibleTextRenderingDefault(false);
                 if (args.Length == 5 && args[0] == "--real-metadata") { RealMetadata(args[1], args[2], args[3], args[4]); return 0; }
                 string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test-runs", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
+                if (args.Length == 1 && args[0] == "--local-page") { LocalPageTests.Run(Check); Console.WriteLine("PASS " + passed + " local-page assertions."); return 0; }
                 if (args.Length == 1 && args[0] == "--shutdown") { ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " shutdown assertions."); return 0; }
-                if (args.Length == 1 && args[0] == "--in-app") { BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " bridge and in-app assertions."); return 0; }
-                Notifications(); Metadata(folder); LegacyTests.Run(Check, folder); AutomaticTests.Run(Check, folder); Visuals(folder); BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder);
+                if (args.Length == 1 && args[0] == "--lifecycle") { LifecycleTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " lifecycle assertions."); return 0; }
+                if (args.Length == 1 && args[0] == "--bridge") { BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " bridge and preview shutdown assertions."); return 0; }
+                Notifications(); Metadata(folder); LegacyTests.Run(Check, folder); AutomaticTests.Run(Check, folder); LocalPageTests.Run(Check); Visuals(folder); PreviewPageTests.Run(Check); LifecycleTests.Run(Check, folder); BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder);
                 Console.WriteLine("PASS " + passed + " assertions; synthetic fixtures only."); return 0;
             } catch (Exception e) { Console.Error.WriteLine(e); return 1; }
         }

@@ -38,6 +38,7 @@ tmp/
 temp/
 output/
 test-runs/
+native-ui/
 task_plan.md
 findings.md
 progress.md
@@ -95,6 +96,7 @@ receipts.json
 agent-status.json
 detected-paths.json
 worker-error.json
+worker-status.json
 setup-error.json
 installation.json
 shortcut-owned.txt

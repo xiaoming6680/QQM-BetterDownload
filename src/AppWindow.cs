@@ -18,50 +18,44 @@ namespace QqmBetterDownload {
         public string Notify = "all", CardStyle = "standard";
         public int CardStay = 4000;
     }
-    // WinForms is only the child HWND container. The entire settings page is HTML.
+    // Runtime/controller. In QQ mode this is a hidden message pump; every
+    // visible control belongs to QQ's native GF renderer. WebView2 remains
+    // available only for standalone design previews and the fixture tests.
     public sealed class AppWindow : Form {
         readonly Settings settings;
         readonly ICardPresenter card;
+        readonly NativeUiSession nativeUi;
+        readonly Icon brandIcon = BrandIcon.Load();
         readonly Process parent;
         readonly IntPtr clientWindow;
         readonly bool preview;
         readonly AutomaticPaths paths;
-        readonly ClientLayout clientLayout;
         readonly HtmlHost web = new HtmlHost { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.FromArgb(247,249,248) };
         readonly Label loading = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Text = "正在打开 BetterDownload…", ForeColor = Color.FromArgb(90,122,105) };
         readonly NotifyIcon tray = new NotifyIcon();
         readonly Timer ipcTimer = new Timer { Interval = 200 }, parentTimer = new Timer { Interval = 100 }, demoTimer = new Timer { Interval = 1400 };
-        readonly EventWaitHandle settingsRequest, stopRequest, alive;
+        readonly EventWaitHandle settingsRequest, stopRequest, alive, sessionStop, sessionAlive;
         readonly List<object> history = new List<object>();
         readonly JavaScriptSerializer json = new JavaScriptSerializer();
         IDownloadMonitor engine;
         WorkStatus latest;
         string lastOutput = "", problem = "", webData = "", htmlPhase = "等待页面容器", scanNote = "";
-        int generation, completed, failed;
+        int generation, completed, failed, nativeRetryTicks, openSequence;
         bool runtimeStarted, closing, nativeEnding, exitRequested, initializing, htmlReady;
         EventHandler demoDone;
         internal bool HtmlReady { get { return htmlReady; } }
-        internal bool CardPresented { get { return card is InAppCard && ((InAppCard)card).IsPresented; } }
-        internal string CardError { get { return card is InAppCard ? ((InAppCard)card).LastError : ""; } }
+        internal bool CardPresented { get { return !Ending && (nativeUi != null ? nativeUi.CardVisible : ((ProgressCard)card).IsVisible); } }
         internal string HtmlError { get { return problem; } }
         bool Ending { get { return closing || nativeEnding || IsDisposed || Disposing; } }
+        bool NativeMode { get { return parent != null; } }
         protected override bool ShowWithoutActivation { get { return true; } }
-        protected override CreateParams CreateParams {
-            get {
-                var value = base.CreateParams;
-                if (clientWindow != IntPtr.Zero) {
-                    value.Parent = clientWindow;
-                    value.Style = (value.Style & ~unchecked((int)0x80c40000)) | ClientUi.Child;
-                    value.ExStyle &= ~0x00040008;
-                }
-                return value;
-            }
-        }
-        protected override void CreateHandle() {
-            if (clientWindow == IntPtr.Zero) { base.CreateHandle(); return; }
-            using (new ClientUi.DpiScope(clientWindow)) { base.CreateHandle(); ClientUi.RequireChild(Handle, clientWindow); }
-        }
         protected override void WndProc(ref Message message) {
+            if ((uint)message.Msg == NativeUiSession.ActionMessage && !Ending) {
+                var nativeCard = card as NativeCard;
+                if (message.WParam == (IntPtr)1 && nativeCard != null) nativeCard.OpenFolder();
+                if (message.WParam == (IntPtr)2) { openSequence++; Publish(); }
+                return;
+            }
             // WM_DESTROY arrives before children are destroyed. Stop callbacks
             // and close our browser while the container still has its HWND.
             if (message.Msg == 0x0002 && !RecreatingHandle) {
@@ -71,18 +65,18 @@ namespace QqmBetterDownload {
             base.WndProc(ref message);
         }
         protected override void SetVisibleCore(bool value) {
-            if (parent != null && !preview && !runtimeStarted && value) {
-                runtimeStarted = true; if (!IsHandleCreated) CreateHandle();
-                BeginInvoke((Action)StartRuntime); return;
+            if (NativeMode) {
+                if (!runtimeStarted && value) { runtimeStarted = true; if (!IsHandleCreated) CreateHandle(); BeginInvoke((Action)StartRuntime); }
+                return;
             }
             base.SetVisibleCore(value);
             if (value && web != null) InitializeHtml();
         }
-        public AppWindow(bool previewMode, Process parentProcess = null, string clientPath = null) {
+        public AppWindow(bool previewMode, Process parentProcess = null, string clientPath = null, IntPtr parentWindow = default(IntPtr)) {
             preview = previewMode; parent = parentProcess;
-            clientWindow = parent == null ? IntPtr.Zero : parent.MainWindowHandle;
+            if (preview && parent != null) throw new ArgumentException("设计预览不接入客户端。");
+            clientWindow = parent == null ? IntPtr.Zero : parentWindow == IntPtr.Zero ? ClientUi.MainWindow(parent, IntPtr.Zero) : parentWindow;
             if (parent != null && clientWindow == IntPtr.Zero) throw new InvalidOperationException("QQ 音乐窗口尚未准备好。");
-            if (parent != null) clientLayout = new ClientLayout(clientWindow);
             try { settings = preview ? new Settings() : StateFile.Read<Settings>(Path.Combine(Program.DataFolder, "settings.json")); }
             catch { settings = new Settings(); }
             if (settings == null) settings = new Settings();
@@ -95,7 +89,11 @@ namespace QqmBetterDownload {
                 paths = new AutomaticPaths(Program.DataFolder, Program.DefaultRoot(), settings.Root);
                 settingsRequest = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\QQM-BetterDownload.Settings");
                 stopRequest = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\QQM-BetterDownload.WorkerStop");
-                alive = new EventWaitHandle(true, EventResetMode.ManualReset, "Local\\QQM-BetterDownload.WorkerAlive");
+                alive = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\QQM-BetterDownload.WorkerAlive");
+                if (parent != null) {
+                    sessionAlive = new EventWaitHandle(false, EventResetMode.ManualReset, WorkerSession.Name(parent, "Alive"));
+                    sessionStop = new EventWaitHandle(false, EventResetMode.AutoReset, WorkerSession.Name(parent, "Stop"));
+                }
             }
             if (settings.Notify != "all" && settings.Notify != "errors" && settings.Notify != "off") settings.Notify = "all";
             if (settings.CardStyle != "compact") settings.CardStyle = "standard";
@@ -103,8 +101,9 @@ namespace QqmBetterDownload {
             Text = "BetterDownload"; ClientSize = new Size(850,760); MinimumSize = new Size(560,440);
             StartPosition = FormStartPosition.CenterScreen; BackColor = Color.FromArgb(247,249,248); Font = new Font("Microsoft YaHei UI", 9);
             AutoScaleMode = AutoScaleMode.None;
-            if (parent != null) { TopLevel = false; FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; MinimumSize = Size.Empty; StartPosition = FormStartPosition.Manual; }
-            card = parent == null ? (ICardPresenter)new ProgressCard(() => IntPtr.Zero, OpenOutput) : new InAppCard(clientWindow, OpenOutput);
+            if (parent != null) { TopLevel = NativeMode; FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; MinimumSize = Size.Empty; StartPosition = FormStartPosition.Manual; }
+            if (NativeMode) nativeUi = new NativeUiSession(this, clientWindow, settings.Client, HandleAction);
+            card = NativeMode ? (ICardPresenter)new NativeCard(nativeUi, clientWindow, OpenOutput) : new ProgressCard(() => IntPtr.Zero, OpenOutput);
             ConfigureCard();
             web.BrowserClosed += delegate {
                 htmlReady = false;
@@ -112,8 +111,8 @@ namespace QqmBetterDownload {
                 if (parent != null && (parent.HasExited || !ClientUi.IsWindow(clientWindow))) { exitRequested = true; Close(); return; }
                 problem = "设置页面已关闭，请重新打开 QQ 音乐。"; loading.Text = problem; loading.Show(); loading.BringToFront();
             };
-            Controls.Add(web); Controls.Add(loading); loading.BringToFront();
-            tray.Text = "BetterDownload"; tray.Icon = SystemIcons.Application;
+            if (!NativeMode) { Controls.Add(web); Controls.Add(loading); loading.BringToFront(); }
+            tray.Text = "BetterDownload"; tray.Icon = brandIcon; Icon = brandIcon;
             var menu = new ContextMenuStrip(); menu.Items.Add("在 QQ 音乐中打开设置", null, delegate { Restore(); });
             menu.Items.Add("退出 BetterDownload", null, delegate { Program.Signal("Local\\QQM-BetterDownload.AgentStop"); exitRequested = true; Close(); });
             tray.ContextMenuStrip = menu; tray.DoubleClick += delegate { Restore(); };
@@ -121,12 +120,13 @@ namespace QqmBetterDownload {
             parentTimer.Tick += delegate {
                 if (closing || IsDisposed || Disposing) return;
                 if (nativeEnding || (parent != null && (parent.HasExited || !ClientUi.IsWindow(clientWindow)))) { exitRequested = true; Close(); }
-                else { if (clientLayout != null) clientLayout.Refresh(); if (Visible) PositionInClient(); }
+                else if (nativeUi != null && ++nativeRetryTicks % 20 == 0 && !nativeUi.Ready) { nativeUi.Connect(); Publish(); WriteRuntimeStatus(); }
             };
             ipcTimer.Tick += delegate {
                 if (Ending) return;
                 if (stopRequest != null && stopRequest.WaitOne(0)) { exitRequested = true; Close(); return; }
-                if (settingsRequest != null && settingsRequest.WaitOne(0)) { if (Visible) Hide(); else Restore(); }
+                if (sessionStop != null && sessionStop.WaitOne(0)) { exitRequested = true; Close(); return; }
+                if (settingsRequest != null && settingsRequest.WaitOne(0)) { if (NativeMode) { nativeUi.Toggle(); if (!nativeUi.Ready) ShowNativeError(); } else if (Visible) Hide(); else Restore(); }
             };
             if (!preview) ipcTimer.Start();
             FormClosing += delegate(object sender, FormClosingEventArgs e) {
@@ -134,7 +134,33 @@ namespace QqmBetterDownload {
                 Cleanup();
             };
         }
-        void StartRuntime() { if (Ending) return; if (settings.Enabled) Start(); else Publish(); if (parent != null) { tray.Visible = true; parentTimer.Start(); } }
+        void StartRuntime() {
+            if (Ending) return;
+            if (nativeUi != null) { nativeUi.Connect(); htmlReady = true; }
+            if (settings.Enabled) Start(); else Publish();
+            if (parent != null) { tray.Visible = true; parentTimer.Start(); }
+            if (alive != null) alive.Set();
+            if (sessionAlive != null) sessionAlive.Set();
+            WriteRuntimeStatus();
+        }
+        void WriteRuntimeStatus() {
+            if (!preview && parent != null) {
+                try {
+                    using (new ClientUi.DpiScope(clientWindow)) {
+                        ClientUi.Rect host; ClientUi.GetWindowRect(clientWindow, out host);
+                        StateFile.Write(Path.Combine(Program.DataFolder, "worker-status.json"), new { version = Program.Version, clientPid = parent.Id, workerPid = Process.GetCurrentProcess().Id,
+                            clientWindow = clientWindow.ToInt64(), clientStyle = ClientUi.GetWindowLong(clientWindow, -20), clientScale = ClientUi.Scale(clientWindow), clientBounds = host,
+                            entryVisible = nativeUi.Ready, entryError = nativeUi.Error,
+                            ui = nativeUi != null ? "native-gf" : "preview", nativeReady = nativeUi != null && nativeUi.Ready,
+                            nativeResult = nativeUi.LastResult, nativeSystemError = nativeUi.LastSystemError });
+                    }
+                } catch { }
+            }
+        }
+        internal void RequestExit() {
+            if (closing || IsDisposed || !IsHandleCreated) return;
+            BeginInvoke((Action)delegate { if (!closing && !IsDisposed) { exitRequested = true; Close(); } });
+        }
         async void InitializeHtml() {
             if (initializing || Ending || web.IsDisposed) return; initializing = true;
             try {
@@ -180,7 +206,7 @@ namespace QqmBetterDownload {
             if (Ending) return;
             if (action == "ready") { htmlReady = true; loading.Hide(); Publish(); return; }
             if (!htmlReady) return;
-            if (action == "close") { Hide(); return; }
+            if (action == "close") { if (nativeUi != null) nativeUi.Hide(); else Hide(); return; }
             if (action == "preview") { PreviewCard(); return; }
             if (action == "project" || action == "issues") { Process.Start(new ProcessStartInfo("https://github.com/xiaoming6680/QQM-BetterDownload" + (action == "issues" ? "/issues" : "")) { UseShellExecute = true }); return; }
             if (action == "open") { if (lastOutput.Length > 0) OpenOutput(Path.GetDirectoryName(lastOutput)); return; }
@@ -227,44 +253,37 @@ namespace QqmBetterDownload {
             Publish();
         }
         void Publish() {
-            if (!htmlReady || Ending || web.IsDisposed || web.Core == null) return;
+            if (!htmlReady || Ending || (nativeUi == null && (web.IsDisposed || web.Core == null))) return;
             var roots = preview ? new[] { settings.Root } : paths.Roots;
             string message = !settings.Enabled ? "已关闭" : latest == null || latest.State == "watching" || latest.State == "success" || latest.State == "skipped" || latest.State == "scan-complete" ? "已启用 · 下载完成后自动转换" : latest.Message;
-            web.PostJson(json.Serialize(new {
-                version = Program.Version, enabled = settings.Enabled, notify = settings.Notify, style = settings.CardStyle, stay = settings.CardStay,
+            string data = json.Serialize(new {
+                version = Program.Version, openSequence = openSequence, enabled = settings.Enabled, notify = settings.Notify, style = settings.CardStyle, stay = settings.CardStay,
                 message = message, state = latest == null ? "" : latest.State,
                 count = completed + failed == 0 ? "" : "本次完成 " + completed + " 首" + (failed > 0 ? " · " + failed + " 首待处理" : ""),
                 error = problem.Length > 0 ? problem : latest != null && latest.State == "error" ? latest.Message : "",
                 client = settings.Client, roots = roots, cache = settings.CoverCache, history = history,
                 scanNote = scanNote
-            }));
+            });
+            if (nativeUi != null) nativeUi.Publish(data); else web.PostJson(data);
         }
         public void PreviewCard() {
             if (Ending) return;
             demoTimer.Stop(); if (demoDone != null) demoTimer.Tick -= demoDone;
             var sample = new WorkStatus { Id = "preview-" + Guid.NewGuid().ToString("N"), Source = "示例歌曲.mflac", State = "converting", Percent = 64, Message = "正在转换", Track = new TrackInfo { Title = "夜间来信", Artist = "示例歌手", Format = "FLAC" } };
             card.Receive(sample, true);
-            demoDone = delegate { demoTimer.Stop(); demoTimer.Tick -= demoDone; demoDone = null; sample.State = "success"; sample.Percent = 100; sample.Output = Path.Combine(settings.Root, "unlock", "示例歌曲.flac"); sample.Warning = "预览示例 · 不会生成文件"; card.Receive(sample, true); };
+            demoDone = delegate { demoTimer.Stop(); demoTimer.Tick -= demoDone; demoDone = null; sample.State = "success"; sample.Percent = 100; sample.Output = Path.Combine(settings.Root, "unlock", "示例歌曲.flac"); card.Receive(sample, true); };
             demoTimer.Tick += demoDone; demoTimer.Start();
         }
         void OpenOutput(string path) {
             try { SafePath.NoLinks(path); if (!Directory.Exists(path)) return; Process.Start(new ProcessStartInfo("explorer.exe", "\"" + path + "\"") { UseShellExecute = true }); }
             catch (Exception e) { problem = e.Message; Publish(); }
         }
-        internal void PositionInClient() {
-            if (parent == null || !IsHandleCreated) return;
-            using (new ClientUi.DpiScope(clientWindow)) {
-                ClientUi.Rect client; if (!ClientUi.GetClientRect(clientWindow, out client)) return;
-                var bounds = clientLayout.Bounds(client); double scale = ClientUi.Scale(clientWindow);
-                if (bounds.Width < 460 * scale || bounds.Height < 180 * scale) { Hide(); return; }
-                if (Bounds != bounds) Bounds = bounds;
-            }
-        }
         internal void Restore() {
             if (Ending) return;
-            if (parent != null) { PositionInClient(); Show(); PositionInClient(); BringToFront(); parentTimer.Start(); Publish(); return; }
+            if (nativeUi != null) { nativeUi.Show(); Publish(); if (!nativeUi.Ready) ShowNativeError(); return; }
             Show(); Publish();
         }
+        void ShowNativeError() { tray.ShowBalloonTip(6000, "BetterDownload", nativeUi.Error, ToolTipIcon.Info); }
         internal Task<string> EvaluateHtml(string script) { return web.Evaluate(script); }
         internal Task CaptureHtml(string file) { return CapturePage(file); }
         async Task CapturePage(string file) { using (var output = File.Create(file)) await web.CapturePage(output); }
@@ -284,12 +303,15 @@ namespace QqmBetterDownload {
             if (closing) return; closing = true; htmlReady = false;
             ipcTimer.Stop(); parentTimer.Stop(); demoTimer.Stop();
             web.Shutdown(); Stop(); card.Dispose(); tray.Visible = false;
+            if (nativeUi != null) nativeUi.Dispose();
             if (alive != null) alive.Reset();
+            if (sessionAlive != null) sessionAlive.Reset();
         }
         protected override void Dispose(bool disposing) {
             if (disposing) {
-                Cleanup(); ipcTimer.Dispose(); parentTimer.Dispose(); demoTimer.Dispose(); tray.Dispose(); web.Dispose();
+                Cleanup(); ipcTimer.Dispose(); parentTimer.Dispose(); demoTimer.Dispose(); tray.Dispose(); web.Dispose(); brandIcon.Dispose();
                 if (settingsRequest != null) { settingsRequest.Dispose(); stopRequest.Dispose(); alive.Dispose(); }
+                if (sessionAlive != null) { sessionAlive.Dispose(); sessionStop.Dispose(); }
                 if (parent != null) parent.Dispose();
             }
             base.Dispose(disposing);

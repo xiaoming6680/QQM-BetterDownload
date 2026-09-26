@@ -21,7 +21,7 @@ namespace QqmBetterDownload {
                     Until(() => (window = FindWindow("BetterDownload.TestHost", "BetterDownload Test Host")) != IntPtr.Zero);
                     hook = NativeBridge.Attach(library, window, true);
                     Until(() => NativeBridge.GetProp(window, "BetterDownload.Imports").ToInt32() >= 4);
-                    check(NativeBridge.GetProp(window, "BetterDownload.Bridge") != IntPtr.Zero, "thread hook initialized child entry");
+                    check(NativeBridge.GetProp(window, "BetterDownload.Bridge") != IntPtr.Zero, "thread hook initialized download bridge");
                     for (int i = 1; i <= 4; i++) {
                         if (!File.Exists(source)) File.WriteAllText(source, "original synthetic bytes");
                         SendMessage(window, (uint)(0x8000 + i), IntPtr.Zero, IntPtr.Zero);
@@ -34,7 +34,6 @@ namespace QqmBetterDownload {
                     check(NativeBridge.GetProp(window, "Test.Error").ToInt32() == 2, "original GetLastError survives hook");
                     File.WriteAllText(source, "original synthetic bytes"); SendMessage(window, 0x8006, IntPtr.Zero, IntPtr.Zero);
                     Thread.Sleep(1200); check(Directory.GetFiles(spool, "*.evt").Length == 4, "failed and unrelated copies ignored");
-                    InAppTests.Run(check, host, window, folder);
                     NativeBridge.PostMessage(window, NativeBridge.DetachMessage, IntPtr.Zero, IntPtr.Zero);
                     Until(() => NativeBridge.GetProp(window, "BetterDownload.Bridge") == IntPtr.Zero);
                     NativeBridge.UnhookWindowsHookEx(hook); hook = IntPtr.Zero; Thread.Sleep(1200);

@@ -119,10 +119,11 @@ namespace BetterDownloadSetup {
         static string Quote(string value) { return "\"" + value + "\""; }
         static void Signal(string name) { try { using (var e = EventWaitHandle.OpenExisting(name)) e.Set(); } catch (WaitHandleCannotBeOpenedException) { } }
         static bool AgentAlive() { try { using (var m = Mutex.OpenExisting("Local\\QQM-BetterDownload.Agent")) { try { if (!m.WaitOne(0)) return true; m.ReleaseMutex(); } catch (AbandonedMutexException) { m.ReleaseMutex(); } return false; } } catch (WaitHandleCannotBeOpenedException) { return false; } }
+        static bool WorkerAlive() { try { using (var e = EventWaitHandle.OpenExisting("Local\\QQM-BetterDownload.WorkerAlive")) return e.WaitOne(0); } catch (WaitHandleCannotBeOpenedException) { return false; } }
         static void Stop() {
             Signal("Local\\QQM-BetterDownload.AgentStop"); Signal("Local\\QQM-BetterDownload.WorkerStop");
-            var timer = Stopwatch.StartNew(); while (AgentAlive() && timer.ElapsedMilliseconds < 10000) Thread.Sleep(100);
-            if (AgentAlive()) throw new IOException("BetterDownload 仍在保存任务，请稍后重试。");
+            var timer = Stopwatch.StartNew(); while ((AgentAlive() || WorkerAlive()) && timer.ElapsedMilliseconds < 15000) Thread.Sleep(100);
+            if (AgentAlive() || WorkerAlive()) throw new IOException("BetterDownload 仍在保存任务，请稍后重试。");
         }
         static Process Start(string file, string args) { return Process.Start(new ProcessStartInfo(file, args) { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden }); }
         static void Register(string version) {
@@ -146,10 +147,16 @@ namespace BetterDownloadSetup {
                     var old = Deployment.State(Root); bool existing = File.Exists(Path.Combine(Root, "installation.json"));
                     var assembly = Assembly.GetExecutingAssembly(); string id;
                     using (var zip = assembly.GetManifestResourceStream("payload.zip")) using (var json = assembly.GetManifestResourceStream("payload.json")) id = Deployment.Stage(Root, zip, json);
-                    // Preserve the stable launcher while it is running. It reads
-                    // the active package pointer, so subsequent packages remain usable.
+                    // Refresh the owned launcher too: its embedded payload is
+                    // the offline repair source after both active versions fail.
                     if (!File.Exists(Launcher)) File.Copy(assembly.Location, Launcher, false);
                     else if (!existing && Deployment.HashFile(Launcher) != Deployment.HashFile(assembly.Location)) throw new IOException("安装目录已有其他文件，已停止覆盖。");
+                    else if (existing && !Path.GetFullPath(assembly.Location).Equals(Path.GetFullPath(Launcher),StringComparison.OrdinalIgnoreCase) && Deployment.HashFile(Launcher) != Deployment.HashFile(assembly.Location)) {
+                        string replacement = Deployment.Child(Root,"launcher-"+Guid.NewGuid().ToString("N")+".tmp");
+                        try { File.Copy(assembly.Location,replacement,false); File.Replace(replacement,Launcher,null); }
+                        catch(IOException) { /* A currently running launcher keeps reading the version pointer. */ }
+                        finally { if(File.Exists(replacement))File.Delete(replacement); }
+                    }
                     if (!old.versions.Contains(id)) old.versions.Add(id);
                     bool defer = existing && old.current != id && AgentAlive() && Process.GetProcessesByName("QQMusic").Length > 0;
                     if (defer) old.pending = id;

@@ -17,7 +17,10 @@ namespace QqmBetterDownload {
         internal event EventHandler BrowserClosed;
         internal CoreWebView2 Core { get { return ending || IsDisposed ? null : core; } }
         internal Color DefaultBackgroundColor { get { return BackColor; } set { BackColor = value; } }
-        internal HtmlHost() { TabStop = true; SetStyle(ControlStyles.UserPaint, true); }
+        internal HtmlHost() { TabStop = true; SetStyle(ControlStyles.UserPaint | ControlStyles.SupportsTransparentBackColor, true); }
+        protected override CreateParams CreateParams {
+            get { var value = base.CreateParams; if (BackColor.A == 0) value.ExStyle |= 0x00200000; return value; }
+        }
         internal Task EnsureReady(CoreWebView2Environment environment) {
             if (initialization == null) initialization = Initialize(environment);
             return initialization;
@@ -83,6 +86,7 @@ namespace QqmBetterDownload {
             });
         }
         protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); UpdateController(); }
+        protected override void OnPaintBackground(PaintEventArgs e) { if (BackColor.A != 0) base.OnPaintBackground(e); }
         protected override void OnVisibleChanged(EventArgs e) { base.OnVisibleChanged(e); UpdateController(); }
         protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); WithController(current => current.MoveFocus(CoreWebView2MoveFocusReason.Programmatic)); }
         protected override void OnHandleDestroyed(EventArgs e) { ReleaseController(); base.OnHandleDestroyed(e); }

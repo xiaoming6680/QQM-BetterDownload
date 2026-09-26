@@ -16,6 +16,9 @@ foreach ($assembly in @('PresentationFramework','PresentationCore','WindowsBase'
 $references += '/reference:System.Xaml.dll'
 $references += '/reference:' + (Join-Path $buildRoot 'Microsoft.Web.WebView2.Core.dll')
 $references += '/resource:' + (Join-Path $projectRoot 'src\ui\settings.html') + ',settings.html'
+$references += '/resource:' + (Join-Path $projectRoot 'src\ui\entry.svg') + ',entry.svg'
+$references += '/resource:' + (Join-Path $projectRoot 'src\BetterDownload.ico') + ',brand.ico'
+$references += '/win32icon:' + (Join-Path $projectRoot 'src\BetterDownload.ico')
 $references += '/win32manifest:' + (Join-Path $projectRoot 'src\app.manifest')
 if ($Tests) {
     $testSources = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'tests') -Filter '*.cs' | ForEach-Object FullName)

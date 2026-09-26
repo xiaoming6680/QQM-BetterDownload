@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 
 namespace QqmBetterDownload {
     internal static class ClientUi {
@@ -15,6 +16,35 @@ namespace QqmBetterDownload {
         [DllImport("user32")] internal static extern bool IsIconic(IntPtr window);
         [DllImport("user32")] internal static extern IntPtr GetParent(IntPtr window);
         [DllImport("user32")] internal static extern int GetWindowLong(IntPtr window, int index);
+        [DllImport("user32", CharSet = CharSet.Unicode)] internal static extern bool SetProp(IntPtr window, string name, IntPtr value);
+        [DllImport("user32", CharSet = CharSet.Unicode)] internal static extern IntPtr RemoveProp(IntPtr window, string name);
+        delegate bool EnumWindow(IntPtr window, IntPtr data);
+        [DllImport("user32")] static extern bool EnumWindows(EnumWindow callback, IntPtr data);
+        [DllImport("user32")] static extern IntPtr GetWindow(IntPtr window, uint command);
+        internal static bool IsClientWindow(IntPtr window, int processId) {
+            uint pid; return IsWindow(window) && NativeBridge.GetWindowThreadProcessId(window, out pid) != 0 && pid == processId;
+        }
+        // Process.MainWindowHandle is cached and can refer to a startup window.
+        // Select the application's full-size unowned window each time instead.
+        internal static IntPtr MainWindow(Process process, IntPtr previous) {
+            // A minimized window reports an empty client rectangle. Preserve a
+            // validated HWND instead of mistaking it for a destroyed window.
+            if (IsClientWindow(previous, process.Id) && IsIconic(previous)) return previous;
+            IntPtr best = IntPtr.Zero; long area = 0;
+            EnumWindows(delegate(IntPtr candidate, IntPtr data) {
+                uint pid; NativeBridge.GetWindowThreadProcessId(candidate, out pid);
+                if (pid != process.Id || GetWindow(candidate, 4) != IntPtr.Zero || (GetWindowLong(candidate, -20) & 0x80) != 0) return true;
+                Rect rect; if (!GetClientRect(candidate, out rect)) return true;
+                double scale = Scale(candidate);
+                if (rect.Width < 640 * scale || rect.Height < 360 * scale) return true;
+                if (!IsWindowVisible(candidate) && candidate != previous) return true;
+                long size = (long)rect.Width * rect.Height;
+                if (IsWindowVisible(candidate)) size += 1L << 40;
+                if (size > area) { area = size; best = candidate; }
+                return true;
+            }, IntPtr.Zero);
+            return best;
+        }
         [DllImport("user32")] internal static extern bool ShowWindow(IntPtr window, int how);
         [DllImport("user32", SetLastError = true)] internal static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
         [DllImport("user32")] static extern uint GetDpiForWindow(IntPtr window);

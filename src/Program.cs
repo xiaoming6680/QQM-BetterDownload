@@ -9,7 +9,7 @@ using System.Diagnostics;
 
 namespace QqmBetterDownload {
     public static class Program {
-        public const string Version = "0.1.1";
+        public const string Version = "0.1.2";
         public static string DataFolder { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QQM-BetterDownload"); } }
         public static string DefaultRoot() {
             string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
@@ -56,8 +56,14 @@ namespace QqmBetterDownload {
                                 parent = Process.GetProcessById(Int32.Parse(Option(args, "--parent", "0"))); clientPath = Option(args, "--client", "");
                                 if (!parent.ProcessName.Equals("QQMusic", StringComparison.OrdinalIgnoreCase) || !SafePath.Full(Path.GetDirectoryName(parent.MainModule.FileName)).Equals(SafePath.Full(clientPath), StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("插件启动来源无效。");
                             }
-                            using (var dpi = parent == null ? null : new ClientUi.DpiScope(parent.MainWindowHandle))
-                            using (var form = new AppWindow(args.Contains("--ui-smoke") || args.Contains("--card-demo"), parent, clientPath)) {
+                            IntPtr window = parent == null ? IntPtr.Zero : new IntPtr(Int64.Parse(Option(args, "--window", "0")));
+                            if (parent != null) {
+                                window = ClientUi.MainWindow(parent, window);
+                                if (!ClientUi.IsClientWindow(window, parent.Id)) throw new IOException("QQ 音乐主窗口尚未准备好。");
+                            }
+                            using (var dpi = parent == null ? null : new ClientUi.DpiScope(window))
+                            using (var form = new AppWindow(args.Contains("--ui-smoke") || args.Contains("--card-demo"), parent, clientPath, window))
+                            using (var lifetime = parent == null ? null : new WorkerLifetime(() => !parent.HasExited && ClientUi.IsClientWindow(window, parent.Id), form.RequestExit, () => Environment.Exit(0))) {
                                 if (args.Contains("--ui-smoke")) form.SavePreview(Option(args, "--ui-smoke", ""));
                                 else { if (args.Contains("--card-demo")) form.Shown += delegate { form.PreviewCard(); }; Application.Run(form); }
                             }
