@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"><title>BetterDownload</title><style>body{margin:0;background:#f7f9f8;color:#24352d}.nbd-settings{margin:0 auto}</style></head><body><section class="nbd-settings">
+<!-- Settings layout and copy from NCM-BetterDownload, GPL-3.0. -->
+<style>
+        .nbd-settings{font:14px/1.6 "Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;padding:32px;max-width:680px;color:inherit;-webkit-font-smoothing:antialiased}.nbd-settings *{box-sizing:border-box}
+        .nbd-settings .nbd-in{animation:nbd-rise .6s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 60ms)}
+        .nbd-settings .nbd-head{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+        .nbd-settings .nbd-logo{position:relative;overflow:hidden;flex:none;width:52px;height:52px;border-radius:15px;display:grid;place-items:center;background:linear-gradient(135deg,#8edb8b,#05c98c 52%,#00ad92);box-shadow:0 10px 24px -10px rgba(0,167,115,.75),inset 0 1px 0 rgba(255,255,255,.45),inset 0 0 0 1px rgba(255,255,255,.18);animation:nbd-pop .8s .06s cubic-bezier(.2,.8,.2,1) backwards}
+        .nbd-settings .nbd-logo svg{position:relative;width:28px;height:28px}
+        .nbd-settings .nbd-logo::after{content:"";position:absolute;inset:-40%;background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.55) 50%,transparent 58%);transform:translateX(-60%);transition:transform .9s cubic-bezier(.2,.8,.2,1);animation:nbd-shine 1.1s .5s cubic-bezier(.2,.8,.2,1) backwards}
+        .nbd-settings .nbd-head:hover .nbd-logo::after{transform:translateX(60%)}
+        .nbd-settings h2{display:flex;align-items:center;gap:10px;margin:0;font-size:22px;font-weight:600;letter-spacing:-.3px;line-height:1.3}
+        .nbd-settings .nbd-version{font-size:11px;font-weight:600;letter-spacing:.3px;padding:1px 8px;border-radius:999px;border:1px solid rgba(136,136,136,.35);opacity:.7}
+        .nbd-settings .nbd-head p{margin:3px 0 0;font-size:13px;opacity:.62}
+        .nbd-settings .nbd-panel{border:1px solid rgba(136,136,136,.2);border-radius:14px;background:rgba(136,136,136,.06);overflow:hidden}
+        .nbd-settings .nbd-row{display:flex;align-items:center;gap:14px;padding:16px 18px;transition:background .25s}.nbd-settings .nbd-row:hover{background:rgba(136,136,136,.05)}.nbd-settings .nbd-row+.nbd-row{border-top:1px solid rgba(136,136,136,.16)}
+        .nbd-settings .nbd-copy{flex:1;min-width:0}.nbd-settings .nbd-copy>div{font-weight:600}
+        .nbd-settings small{display:block;margin-top:1px;font-size:12px;opacity:.6;overflow-wrap:anywhere}
+        .nbd-settings .nbd-changed{animation:nbd-fade .5s ease-out}
+        .nbd-settings [data-dot],.nbd-settings .nbd-glyph{flex:none;align-self:flex-start;width:14px;height:22px;display:grid;place-items:center}.nbd-settings .nbd-glyph{opacity:.6}
+        .nbd-settings [data-dot]::before{content:"";width:8px;height:8px;border-radius:50%;background:#9aa0a6;box-shadow:0 0 0 4px rgba(154,160,166,.16);transition:background .35s,box-shadow .35s}
+        .nbd-settings [data-dot][data-state=on]::before{background:#2fbf71;box-shadow:0 0 0 4px rgba(47,191,113,.18)}
+        .nbd-settings [data-dot][data-state=busy]::before{background:#08b786;box-shadow:0 0 0 4px rgba(0,183,128,.2);animation:nbd-pulse 1.6s ease-in-out infinite}
+        .nbd-settings [data-dot][data-state=problem]::before{background:#e5534b;box-shadow:0 0 0 4px rgba(229,83,75,.18)}
+        .nbd-settings button{font:inherit;color:inherit;cursor:pointer;transition:transform .15s cubic-bezier(.3,.7,.3,1)}.nbd-settings button:not(:disabled):active{transform:scale(.95)}
+        .nbd-settings button:disabled{opacity:.45;cursor:default}.nbd-settings button:focus-visible{outline:2px solid #08aa77;outline-offset:3px}
+        .nbd-settings [data-toggle]{position:relative;overflow:hidden;flex:none;width:44px;height:24px;padding:0;border:0;border-radius:999px;background:rgba(136,136,136,.4)}
+        .nbd-settings [data-toggle]::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#8edb8b,#05c98c 52%,#00ad92);opacity:0;transition:opacity .3s}.nbd-settings [data-toggle][aria-checked=true]::before{opacity:1}
+        .nbd-settings [data-toggle] span{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .42s cubic-bezier(.34,1.5,.64,1),width .2s cubic-bezier(.3,.7,.3,1)}
+        .nbd-settings [data-toggle][aria-checked=true] span{transform:translateX(20px)}
+        .nbd-settings [data-toggle]:active span{width:22px}.nbd-settings [data-toggle][aria-checked=true]:active span{transform:translateX(16px)}
+        .nbd-settings [data-scan]{flex:none;font-size:13px;font-weight:600;padding:7px 14px;border-radius:9px;border:1px solid rgba(136,136,136,.35);background:rgba(136,136,136,.1);white-space:nowrap;transition:background .2s,border-color .2s,transform .15s}
+        .nbd-settings [data-scan]:hover:not(:disabled){background:rgba(136,136,136,.18);border-color:rgba(136,136,136,.5)}
+        .nbd-settings [data-scan][data-busy=true]::before{content:"";display:inline-block;width:10px;height:10px;margin-right:7px;vertical-align:-1px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:nbd-spin .75s linear infinite}
+        .nbd-settings [data-detail]{margin-top:12px;padding:10px 14px;border-left:3px solid #e5534b;border-radius:8px;background:rgba(229,83,75,.1);font-size:12.5px;word-break:break-word}.nbd-settings [data-detail]:empty{display:none}
+        .nbd-settings [data-detail]:not(:empty){animation:nbd-drop .45s cubic-bezier(.2,.8,.2,1) backwards}
+        .nbd-settings .nbd-section{margin:26px 0 10px;font-size:12px;font-weight:600;letter-spacing:.4px;opacity:.55}
+        .nbd-settings .nbd-segment{position:relative;flex:none;display:inline-grid;grid-auto-flow:column;grid-auto-columns:1fr;padding:3px;border-radius:10px;background:rgba(136,136,136,.14)}
+        .nbd-settings .nbd-thumb{position:absolute;top:3px;bottom:3px;left:3px;width:calc((100% - 6px) / var(--n));border-radius:7px;background:linear-gradient(135deg,#8edb8b,#05c98c 52%,#00ad92);box-shadow:0 2px 8px -3px rgba(0,167,115,.8);transform:translateX(calc(100% * var(--index,0)));transition:transform .45s cubic-bezier(.34,1.3,.64,1)}
+        .nbd-settings .nbd-segment button{position:relative;border:0;border-radius:7px;padding:5px 12px;background:transparent;font-size:12.5px;font-weight:600;white-space:nowrap;opacity:.7;transition:color .25s,opacity .25s,transform .15s}
+        .nbd-settings .nbd-segment button:hover{opacity:1}.nbd-settings .nbd-segment button[aria-checked=true]{opacity:1;color:#fff}
+        .nbd-settings [data-preview]{flex:none;border:0;background:none;padding:4px 2px;font-size:12.5px;font-weight:600;opacity:.75;text-decoration:underline;text-underline-offset:3px;transition:opacity .2s,transform .15s}
+        .nbd-settings [data-preview]:hover:not(:disabled){opacity:1}
+        .nbd-settings .nbd-features{list-style:none;margin:22px 0 0;padding:0;display:grid;gap:14px}.nbd-settings .nbd-features li{display:flex;gap:12px;align-items:center}
+        .nbd-settings .nbd-features i{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-style:normal;color:#08aa77;background:rgba(0,167,115,.14);transition:transform .35s cubic-bezier(.34,1.5,.64,1)}
+        .nbd-settings .nbd-features li:hover i{transform:translateY(-2px) scale(1.06)}
+        .nbd-settings .nbd-features b{display:block;font-size:13px;font-weight:600}
+        .nbd-settings footer{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-top:24px;padding-top:16px;border-top:1px solid rgba(136,136,136,.16);font-size:12px;opacity:.62}
+        .nbd-settings [data-links]{display:flex;gap:16px}.nbd-settings footer a{color:inherit;text-decoration:none}.nbd-settings footer a:hover{text-decoration:underline;text-underline-offset:3px}
+        @keyframes nbd-rise{from{opacity:0;transform:translateY(12px)}}
+        @keyframes nbd-pop{0%{opacity:0;transform:scale(.55) rotate(-14deg)}65%{opacity:1;transform:scale(1.07) rotate(2deg)}100%{transform:none}}
+        @keyframes nbd-shine{from{transform:translateX(-60%)}to{transform:translateX(60%)}}
+        @keyframes nbd-fade{from{opacity:.15;transform:translateY(3px)}}
+        @keyframes nbd-drop{from{opacity:0;transform:translateY(-8px)}}
+        @keyframes nbd-spin{to{transform:rotate(360deg)}}
+        @keyframes nbd-pulse{50%{box-shadow:0 0 0 7px rgba(0,183,128,0)}}
+        @media(prefers-reduced-motion:reduce){.nbd-settings *,.nbd-settings *::before,.nbd-settings *::after{animation-duration:.01ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+        @media(max-width:520px){.nbd-settings{padding:24px 18px}.nbd-settings .nbd-row{flex-wrap:wrap}}
+        </style><header class="nbd-head nbd-in" style="--i:0"><div class="nbd-logo"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4.5v10M6 10.5l4 4 4-4M5 19.5h11"/><rect x="15.2" y="6.6" width="6.4" height="5" rx="1.3" fill="#fff" stroke="none"/><path d="M16.7 6.6V5a1.8 1.8 0 0 1 3.5-.6" stroke-width="1.5"/></svg></div><div><h2>BetterDownload<span class="nbd-version">v0.1.0</span></h2><p>自动解锁下载的 VIP 歌曲，保留原音质。</p></div></header>
+        <div class="nbd-panel nbd-in" style="--i:1"><div class="nbd-row"><span data-dot></span><div class="nbd-copy"><div data-status role="status"></div><small data-count></small></div><button data-toggle role="switch" aria-checked="true" aria-label="启用 BetterDownload"><span></span></button></div>
+        <div class="nbd-row"><span class="nbd-glyph"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/></svg></span><div class="nbd-copy"><div>转换已有下载</div><small data-scan-note role="status"></small></div><button data-scan>查找并转换</button></div></div>
+        <div data-detail></div>
+        <div class="nbd-section nbd-in" style="--i:2">进度卡片</div>
+        <div class="nbd-panel nbd-in" style="--i:3"><div class="nbd-row"><span class="nbd-glyph"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5A3.5 3.5 0 0 0 4.5 6v2.4L3.2 10.8h9.6L11.5 8.4V6A3.5 3.5 0 0 0 8 2.5z"/><path d="M6.6 12.8a1.5 1.5 0 0 0 2.8 0"/></svg></span><div class="nbd-copy"><div>弹出时机</div><small data-notify-note></small></div>
+        <div class="nbd-segment" role="radiogroup" aria-label="弹出时机" data-notify style="--n:3"><span class="nbd-thumb"></span><button role="radio" data-value="all">每首歌</button><button role="radio" data-value="errors">仅出错</button><button role="radio" data-value="off">不显示</button></div></div>
+        <div class="nbd-row"><span class="nbd-glyph"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="2" y="4" width="12" height="8" rx="2"/><path d="M4.8 7h3.4M4.8 9.2h6"/></svg></span><div class="nbd-copy"><div>卡片样式</div><small data-style-note></small></div>
+        <div class="nbd-segment" role="radiogroup" aria-label="卡片样式" data-card-style style="--n:2"><span class="nbd-thumb"></span><button role="radio" data-value="standard">标准</button><button role="radio" data-value="compact">简洁</button></div><button data-preview>预览</button></div>
+        <div class="nbd-row"><span class="nbd-glyph"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.6"/><path d="M8 5.2V8l1.9 1.3"/></svg></span><div class="nbd-copy"><div>停留时间</div><small>鼠标停在卡片上时不会收起</small></div>
+        <div class="nbd-segment" role="radiogroup" aria-label="停留时间" data-card-stay style="--n:3"><span class="nbd-thumb"></span><button role="radio" data-value="2000">2 秒</button><button role="radio" data-value="4000">4 秒</button><button role="radio" data-value="6000">6 秒</button></div></div></div>
+        <ul class="nbd-features"><li class="nbd-in" style="--i:4"><i><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 6.5v3M5.25 4.5v7M8 2.5v11M10.75 4.5v7M13.5 6.5v3"/></svg></i><div><b>无损提取</b><small>直接取出 FLAC / OGG 原始音频，不重新编码</small></div></li>
+        <li class="nbd-in" style="--i:5"><i><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><circle cx="6" cy="6.2" r="1.2"/><path d="m3 12.2 3.1-3.1 2.2 2.2 1.8-1.8 2.9 2.9"/></svg></i><div><b>信息完整</b><small>封面、标题、歌手与专辑写入音频文件</small></div></li>
+        <li class="nbd-in" style="--i:6"><i><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.6A1.6 1.6 0 0 1 3.6 3h2.5l1.5 1.6h4.8A1.6 1.6 0 0 1 14 6.2v5.2a1.6 1.6 0 0 1-1.6 1.6H3.6A1.6 1.6 0 0 1 2 11.4z"/><path d="m5.8 8.7 1.5 1.5 2.9-3"/></svg></i><div><b>原文件保留</b><small>输出到 VipSongsDownload\\unlock，不覆盖你已有的文件</small></div></li></ul>
+        <footer class="nbd-in" style="--i:7"><span>作者 XIAOMING6680</span><span data-links></span></footer>
+</section><script>
+(()=>{'use strict';const q=s=>document.querySelector(s);let current={};
+function send(action,value){if(window.chrome&&chrome.webview)chrome.webview.postMessage({action,value});}
+function choose(name,value){const group=q('[data-'+name+']'),radios=[...group.querySelectorAll('[role=radio]')];radios.forEach((r,i)=>{const on=r.dataset.value===String(value);r.setAttribute('aria-checked',String(on));r.tabIndex=on?0:-1;if(on)group.style.setProperty('--index',i);});}
+window.renderSettings=s=>{current=s;q('.nbd-version').textContent='v'+s.version;q('[data-toggle]').setAttribute('aria-checked',String(s.enabled));q('[data-dot]').dataset.state=s.error?'problem':!s.enabled?'off':s.state==='converting'||s.state==='scanning'?'busy':'on';q('[data-status]').textContent=s.message||(s.enabled?'已启用 · 下载完成后自动转换':'已关闭');q('[data-count]').textContent=s.count||'封面与歌曲信息直接写入音频文件';q('[data-detail]').textContent=s.error||'';q('[data-scan-note]').textContent=s.scanNote||'找出下载目录里还没有转换的加密歌曲';q('[data-scan]').disabled=!s.enabled||s.state==='scanning';q('[data-scan]').dataset.busy=String(s.state==='scanning');q('[data-scan]').textContent=s.state==='scanning'?'正在查找…':'查找并转换';q('[data-notify-note]').textContent=s.notify==='all'?'每首歌转换时在右下角提示':s.notify==='errors'?'只在转换失败或程序受阻时提示':'不弹出卡片，转换状态仍可在此页查看';q('[data-style-note]').textContent=s.style==='compact'?'单行显示，只保留封面与状态':'显示封面、格式与转换进度';choose('notify',s.notify);choose('card-style',s.style);choose('card-stay',s.stay);document.body.dataset.ready='true';};
+q('[data-toggle]').onclick=()=>send('toggle');q('[data-scan]').onclick=()=>send('scan');q('[data-preview]').onclick=()=>send('preview');
+for(const [name,action] of [['notify','notify'],['card-style','style'],['card-stay','stay']])q('[data-'+name+']').onclick=e=>{const r=e.target.closest('[role=radio]');if(r)send(action,r.dataset.value);};
+document.querySelectorAll('[role=radiogroup]').forEach(group=>group.addEventListener('keydown',e=>{const radios=[...group.querySelectorAll('[role=radio]')],index=radios.indexOf(document.activeElement),step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[e.key];if(index<0||!step)return;e.preventDefault();const next=radios[(index+step+radios.length)%radios.length];next.focus();next.click();}));
+for(const [text,action] of [['项目主页','project'],['问题反馈','issues']]){const a=document.createElement('a');a.href='#';a.textContent=text;a.onclick=e=>{e.preventDefault();send(action);};q('[data-links]').append(a);}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')send('close');});
+if(window.chrome&&chrome.webview){chrome.webview.addEventListener('message',e=>renderSettings(e.data));send('ready');}else renderSettings({version:'0.1.0',enabled:true,notify:'all',style:'standard',stay:4000,state:'watching',history:[]});
+})();</script></body></html>

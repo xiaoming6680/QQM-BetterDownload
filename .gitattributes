@@ -1,0 +1,12 @@
+* text=auto
+*.cs text eol=crlf
+*.c text eol=lf
+*.def text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.md text eol=lf
+*.png binary
+*.jpg binary
+*.flac binary
+# Preserve upstream license text verbatim, including its whitespace.
+/licenses/* -whitespace
