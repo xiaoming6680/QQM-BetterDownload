@@ -41,7 +41,7 @@ static BrowserCreate browser_create;
 static BrowserNavigate browser_navigate;
 static WCHAR assets[2048],url[2048];
 static BOOL settings_visible,card_visible,leaving,hovered;
-static BOOL entry_down,suppress_entry_up;
+static BOOL entry_down,suppress_entry_up,timer_on;
 static int entry_state;
 static RECT folder_hit;
 static int card_width,card_height,stay;
@@ -79,6 +79,11 @@ static BOOL bounds(void *frame,RECT *r){
 static UINT dpi(void){typedef UINT(WINAPI *GetDpi)(HWND);GetDpi get=(GetDpi)(void*)GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow");UINT value=get?get(host):96;return value?value:96;}
 static POINT logical(POINT p){UINT d=dpi();p.x=MulDiv(p.x,96,(int)d);p.y=MulDiv(p.y,96,(int)d);return p;}
 BOOL bd_ui_entry_hit(HWND window,POINT p){RECT r;if(window!=host||!entry)return FALSE;ScreenToClient(host,&p);p=logical(p);return bounds(entry,&r)&&PtInRect(&r,p);}
+/* Drive the 16ms frame clock only while there is something to animate: a
+   visible or sliding card, or an entry hover to track. When nothing moves the
+   timer is stopped, so an idle QQ Music does no per-frame work on its UI thread. */
+static void pump(void){if(host&&!timer_on&&SetTimer(host,BD_UI_TIMER,16,NULL))timer_on=TRUE;}
+void bd_ui_wake(HWND window){if(window==host)pump();}
 static void update_entry(void){
     POINT p;BOOL over=FALSE;
     if(GetCursorPos(&p)){HWND under=WindowFromPoint(p);over=(under==host||IsChild(host,under))&&bd_ui_entry_hit(host,p);}
@@ -117,17 +122,19 @@ static void show_settings(BOOL show){
         ((PutRect)vt(native)[0x214/4])(native,padding);number(native,0x224,1);number(native,0x170,1);
         browser_navigate(browser,url,0,0);
     }
-    BOOL opening=show&&!settings_visible;
+    BOOL changed=show!=settings_visible;
     settings_visible=show;number(panel,0x15c,!show);
     if(show)SetPropW(host,L"BetterDownload.NativeSettings",(HANDLE)1);else RemovePropW(host,L"BetterDownload.NativeSettings");
-    if(opening)PostMessageW(owner,callback_message,2,0);
+    /* 2 = opened, 3 = closed. The page blanks itself while hidden so a quick
+       reopen fades in fresh instead of flashing the previous frame. */
+    if(changed)PostMessageW(owner,callback_message,show?2:3,0);
 }
 void bd_ui_close(HWND window){
     if(host&&window!=host)return;
     if(host){KillTimer(host,BD_UI_TIMER);RemovePropW(host,L"BetterDownload.NativeUi");RemovePropW(host,L"BetterDownload.NativeOwner");RemovePropW(host,L"BetterDownload.NativeSettings");RemovePropW(host,L"BetterDownload.NativeCard");}
     if(browser){browser_destroy(browser);browser_dtor(browser);HeapFree(GetProcessHeap(),0,browser);browser=NULL;}
     destroy_frame(&card);destroy_frame(&card_back);destroy_frame(&panel);destroy_frame(&entry);drop(root);drop(core);root=core=NULL;
-    settings_visible=card_visible=leaving=hovered=FALSE;host=owner=NULL;owner_pid=0;assets[0]=url[0]=0;
+    settings_visible=card_visible=leaving=hovered=timer_on=FALSE;host=owner=NULL;owner_pid=0;assets[0]=url[0]=0;
     entry_down=suppress_entry_up=FALSE;entry_state=0;
 }
 static int initialize(HWND window,HWND sender,const WCHAR *text){
@@ -159,12 +166,13 @@ static int initialize(HWND window,HWND sender,const WCHAR *text){
     if(nav&&content)failure=-8;
     drop(nav);drop(content);if(!entry||!panel||!card||!card_back)goto fail;
     failure=-9;
-    size(entry,36,32);string(entry,0x21c,L"RIGHTCENTER");margin(entry,197,0);if(!picture(entry,L"entry.svg"))goto fail;
+    size(entry,30,30);string(entry,0x21c,L"RIGHTCENTER");margin(entry,197,0);if(!picture(entry,L"entry.svg"))goto fail;
     attribute(panel,L"zOrder",L"-100");number(panel,0x224,1);number(panel,0x15c,1);
     attribute(card,L"zOrder",L"-200");string(card,0x21c,L"BOTTOMRIGHT");number(card,0x15c,1);
     attribute(card_back,L"zOrder",L"-200");string(card_back,0x21c,L"BOTTOMRIGHT");number(card_back,0x15c,1);
     callback_message=RegisterWindowMessageW(L"BetterDownload.NativeAction.v1");
-    SetTimer(host,BD_UI_TIMER,16,NULL);SetPropW(host,L"BetterDownload.NativeOwner",owner);SetPropW(host,L"BetterDownload.NativeUi",(HANDLE)1);return TRUE;
+    /* Start idle: the frame clock runs on demand, not for the whole session. */
+    SetPropW(host,L"BetterDownload.NativeOwner",owner);SetPropW(host,L"BetterDownload.NativeUi",(HANDLE)1);return TRUE;
 fail:bd_ui_close(window);return failure;
 }
 LRESULT bd_ui_command(HWND window,HWND sender,const COPYDATASTRUCT *packet,HMODULE bridge){
@@ -177,7 +185,7 @@ LRESULT bd_ui_command(HWND window,HWND sender,const COPYDATASTRUCT *packet,HMODU
     DWORD pid=0;GetWindowThreadProcessId(sender,&pid);if(window!=host||sender!=owner||pid!=owner_pid)return 0;
     if(command==1){show_settings(!settings_visible);return settings_visible?2:1;}
     if(command==2){show_settings(FALSE);return 1;}
-    if(command==4){if(card_visible){leaving=TRUE;animation=GetTickCount64();}return 1;}
+    if(command==4){if(card_visible){leaving=TRUE;animation=GetTickCount64();pump();}return 1;}
     if(command==5){bd_ui_close(window);return 1;}
     if(command==6){show_settings(TRUE);return settings_visible?1:0;}
     if(command==3){
@@ -190,7 +198,7 @@ LRESULT bd_ui_command(HWND window,HWND sender,const COPYDATASTRUCT *packet,HMODU
         void *previous=card;card=card_back;card_back=previous;number(card_back,0x15c,1);
         card_width=w;card_height=h;folder_hit=(RECT){x,y,x+fw,y+fh};stay=duration;
         if(appear){if(!card_visible||leaving)animation=GetTickCount64();leaving=FALSE;card_visible=TRUE;deadline=GetTickCount64()+stay;number(card,0x15c,0);SetPropW(host,L"BetterDownload.NativeCard",(HANDLE)1);}
-        if(card_visible){bd_ui_tick(host);number(card,0x15c,!card_visible);}return 1;
+        if(card_visible){pump();bd_ui_tick(host);number(card,0x15c,!card_visible);}return 1;
     }
     return 0;
 }
@@ -198,7 +206,9 @@ void bd_ui_tick(HWND window){
     if(window!=host)return;
     DWORD pid=0;GetWindowThreadProcessId(owner,&pid);if(!IsWindow(owner)||pid!=owner_pid){bd_ui_close(window);return;}
     update_entry();
-    if(!card_visible)return;
+    // Stop the clock once nothing needs animating; a lingering entry hover keeps
+    // it alive so the highlight and its release still repaint.
+    if(!card_visible){if(entry_state==0){KillTimer(host,BD_UI_TIMER);timer_on=FALSE;}return;}
     ULONGLONG now=GetTickCount64();RECT rect;POINT p;BOOL over=FALSE;
     if(GetCursorPos(&p)){HWND under=WindowFromPoint(p);if(under==host||IsChild(host,under)){ScreenToClient(host,&p);p=logical(p);over=bounds(card,&rect)&&PtInRect(&rect,p);}}
     if(over)deadline=now+stay;else if(hovered)deadline=now+stay;hovered=over;
@@ -219,7 +229,7 @@ BOOL bd_ui_message(const MSG *message){
         if(m==WM_LBUTTONDOWN||m==WM_NCLBUTTONDOWN){entry_down=TRUE;suppress_entry_up=FALSE;}
         else if(m==WM_LBUTTONDBLCLK||m==WM_NCLBUTTONDBLCLK){entry_down=TRUE;suppress_entry_up=TRUE;}
         else if(m==WM_LBUTTONUP||m==WM_NCLBUTTONUP){entry_down=FALSE;if(!suppress_entry_up)show_settings(!settings_visible);suppress_entry_up=FALSE;}
-        update_entry();return m!=WM_RBUTTONUP;
+        pump();update_entry();return m!=WM_RBUTTONUP;
     }
     if(m!=WM_LBUTTONUP&&m!=WM_RBUTTONUP)return FALSE;
     if(card_visible&&bounds(card,&r)&&PtInRect(&r,p)){

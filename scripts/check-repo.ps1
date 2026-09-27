@@ -1,11 +1,11 @@
-param([switch]$ListFiles)
+﻿param([switch]$ListFiles)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $files = @(& git -C $projectRoot -c core.quotepath=false ls-files --cached --others --exclude-standard | Sort-Object -Unique)
 if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Git file list.' }
 $files = @($files | Where-Object { Test-Path -LiteralPath (Join-Path $projectRoot $_) -PathType Leaf })
 $problems = [Collections.Generic.List[string]]::new()
-$rootFiles = @('.gitignore','.gitattributes','README.md','CHANGELOG.md','LICENSE','THIRD-PARTY-NOTICES.md','预览卡片.cmd')
+$rootFiles = @('.gitignore','.gitattributes','README.md','CHANGELOG.md','LICENSE','THIRD-PARTY-NOTICES.md')
 foreach ($file in $files) {
     $full = Join-Path $projectRoot $file
     if (!(Test-Path -LiteralPath $full -PathType Leaf)) { continue }

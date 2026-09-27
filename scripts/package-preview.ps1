@@ -23,7 +23,7 @@ foreach ($file in $sourceFiles) {
 }
 $version = [regex]::Match([IO.File]::ReadAllText((Join-Path $projectRoot 'src\Program.cs')), 'Version = "([0-9.]+)"').Groups[1].Value
 $archive = Join-Path $dist ('QQM-BetterDownload-' + $version + '-preview.zip')
-Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression.FileSystem, System.IO.Compression
 $manifest = [Collections.Generic.List[object]]::new()
 $stream = [IO.File]::Open($archive, [IO.FileMode]::Create)
 try {

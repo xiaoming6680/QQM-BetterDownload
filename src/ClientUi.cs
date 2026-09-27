@@ -56,6 +56,15 @@ namespace QqmBetterDownload {
             return best;
         }
         [DllImport("user32")] internal static extern bool ShowWindow(IntPtr window, int how);
+        [DllImport("user32")] static extern bool SetForegroundWindow(IntPtr window);
+        [DllImport("user32")] internal static extern bool AllowSetForegroundWindow(int processId);
+        // An explicit "open settings" request from the Start menu or installer
+        // must be visible: restore a minimized or tray-hidden client first.
+        internal static void Activate(IntPtr window) {
+            if (!IsWindow(window)) return;
+            if (IsIconic(window)) ShowWindow(window, 9); else if (!IsWindowVisible(window)) ShowWindow(window, 5);
+            SetForegroundWindow(window);
+        }
         [DllImport("user32", SetLastError = true)] internal static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
         [DllImport("user32")] static extern uint GetDpiForWindow(IntPtr window);
         [DllImport("user32")] static extern IntPtr GetWindowDpiAwarenessContext(IntPtr window);

@@ -7,7 +7,8 @@
 /* README cover: 880 × 440, rendered at 2x. */
 @font-face{font-family:PF;src:local("PingFang SC Medium"),local("PingFangSC-Medium");font-weight:500}
 @font-face{font-family:PF;src:local("PingFang SC Semibold"),local("PingFangSC-Semibold"),local("PingFang SC Bold");font-weight:600}
-:root{--w:880px;--h:440px;--s:140px;--cy:158px;--brand:linear-gradient(135deg,#8edb8b,#05c98c 52%,#00ad92)}
+/* Colours from QQ Music's logo: the note's teal-to-green for the tile, the disc's yellow for the lock. */
+:root{--w:880px;--h:440px;--s:140px;--cy:158px;--brand:linear-gradient(149deg,#14d6c0,#0cc48f 55%,#06ba6c)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{position:relative;width:var(--w);height:var(--h);overflow:hidden;background:#000;color:#f5f5f7;font-family:PF,"Microsoft YaHei UI",sans-serif;-webkit-font-smoothing:antialiased}
 /* The icon and its glow share one centre. The glow is the icon's own gradient blurred twice: a bright core and a wide haze. */
@@ -23,20 +24,20 @@ body{position:relative;width:var(--w);height:var(--h);overflow:hidden;background
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 <defs>
- <linearGradient id="base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8edb8b"/><stop offset=".52" stop-color="#05c98c"/><stop offset="1" stop-color="#00ad92"/></linearGradient>
+ <linearGradient id="base" x1=".2" y1="0" x2=".8" y2="1"><stop offset="0" stop-color="#14d6c0"/><stop offset=".55" stop-color="#0cc48f"/><stop offset="1" stop-color="#06ba6c"/></linearGradient>
  <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset=".12" stop-color="#fff" stop-opacity=".2"/><stop offset="1" stop-color="#fff" stop-opacity=".16"/></linearGradient>
  <!-- A continuous-corner square (corner radius 22.5%, 60% smoothing), the outline of Apple's app icons. -->
  <path id="shape" d="M64 0c12.6 0 18.9 0 23.71 2.45a22.5 22.5 0 0 1 9.83 9.83c2.45 4.81 2.45 11.11 2.45 23.71V64c0 12.6 0 18.9-2.45 23.71a22.5 22.5 0 0 1-9.83 9.83c-4.81 2.45-11.11 2.45-23.71 2.45H36c-12.6 0-18.9 0-23.71-2.45a22.5 22.5 0 0 1-9.83-9.83C0 82.9 0 76.6 0 64V36c0-12.6 0-18.9 2.45-23.71a22.5 22.5 0 0 1 9.83-9.83C17.1 0 23.4 0 36 0Z"/>
  <clipPath id="clip"><use href="#shape"/></clipPath>
- <!-- Flat like the settings page logo: the gradient, a hairline inner edge that is brighter along the top, and the white mark. -->
+ <!-- Flat like the settings page logo: the gradient, a hairline inner edge that is brighter along the top, a white arrow and a yellow lock. -->
  <symbol id="icon" viewBox="0 0 100 100">
   <use href="#shape" fill="url(#base)"/>
   <use href="#shape" fill="none" stroke="url(#edge)" stroke-width="2" vector-effect="non-scaling-stroke" clip-path="url(#clip)"/>
-  <!-- The mark from plugin/progress-card.js, at 56% of the tile. -->
+  <!-- The mark shared with src/ui/settings.html, at 56% of the tile. -->
   <g transform="translate(22 22) scale(2.3333)" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
    <path d="M10 4.5v10M6 10.5l4 4 4-4M5 19.5h11" stroke-width="2"/>
-   <rect x="15.2" y="6.6" width="6.4" height="5" rx="1.3" fill="#fff" stroke="none"/>
-   <path d="M16.7 6.6V5a1.8 1.8 0 0 1 3.5-.6" stroke-width="1.5"/>
+   <rect x="15.2" y="6.6" width="6.4" height="5" rx="1.3" fill="#ffdc00" stroke="none"/>
+   <path d="M16.7 6.6V5a1.8 1.8 0 0 1 3.5-.6" stroke="#ffdc00" stroke-width="1.5"/>
   </g>
  </symbol>
 </defs>

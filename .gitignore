@@ -1,7 +1,12 @@
-# Root allowlist: source, documentation and build inputs only.
+# QQM-BetterDownload
+# The root is an allowlist: only source, documentation and build inputs are
+# tracked. scripts/check-repo.ps1 audits the result and these ignore rules.
+
+# ---- Root allowlist -------------------------------------------------------
 /*
 !/.gitignore
 !/.gitattributes
+!/.github/
 !/README.md
 !/CHANGELOG.md
 !/LICENSE
@@ -9,47 +14,42 @@
 !/src/
 !/native/
 !/setup/
-!/scripts/
 !/tests/
+!/scripts/
 !/docs/
 !/promo/
 !/licenses/
-!/.github/
-!/预览卡片.cmd
 
-# Local research, plans, toolchains, builds and working data (at any depth).
-.research/
+# ---- Build output, toolchains and downloads (any depth) -------------------
+# build/ also holds restored NuGet packages (build/deps) and test runs.
 .tools/
-.planning/
-.codex/
-.claude/
-.vs/
-.vscode/
-.idea/
-.venv/
-__pycache__/
-node_modules/
 build/
 dist/
 bin/
 obj/
 out/
+node_modules/
+package-lock.json
+
+# ---- Local notes, research and editor state -------------------------------
+.research/
+.planning/
+.claude/
+.codex/
+.vs/
+.vscode/
+.idea/
+.venv/
+__pycache__/
 tmp/
 temp/
-output/
-test-runs/
-native-ui/
 task_plan.md
 findings.md
 progress.md
 AGENTS.md
 CLAUDE.md
 
-# Earlier proxy-DLL experiment; the shipping source uses bridge.c.
-/native/loader.c
-/native/msimg32.def
-
-# Binaries, downloaded packages, crash dumps and temporary files.
+# ---- Binaries, archives and temporary files -------------------------------
 *.exe
 *.dll
 *.pdb
@@ -76,13 +76,22 @@ CLAUDE.md
 Thumbs.db
 Desktop.ini
 
-# Credentials, client databases, machine-specific settings and event receipts.
-.env
-.env.*
-*.pem
-*.key
-*.pfx
-*.p12
+# ---- Runtime data: never commit user state, keys or client databases ------
+# Files BetterDownload writes to %LOCALAPPDATA%\QQM-BetterDownload.
+settings.json
+receipts.json
+installation.json
+detected-paths.json
+agent-status.json
+worker-status.json
+worker-error.json
+setup-error.json
+shortcut-owned.txt
+native-ui/
+events/
+test-runs/
+# QQ Music's key store (MMKV), databases and credentials.
+mmkv*
 *.cah
 *.crc
 *.dat
@@ -90,18 +99,14 @@ Desktop.ini
 *.sqlite
 *.sqlite3
 *.evt
-mmkv*
-settings.json
-receipts.json
-agent-status.json
-detected-paths.json
-worker-error.json
-worker-status.json
-setup-error.json
-installation.json
-shortcut-owned.txt
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
 
-# No user music or client cache, even if placed in a source directory.
+# ---- Music and client cache: no user audio, even inside source folders ----
 VipSongsDownload/
 QQMusicCache/
 unlock/
@@ -118,6 +123,8 @@ unlock/
 *.lrc
 *.qrc
 
-# One documented, original one-second tone is a required test fixture.
+# ---- Required exceptions --------------------------------------------------
+# The documented, original one-second test tone.
 !/tests/fixtures/tone.flac
+# Upstream license text; "mmkv*" matches it on case-insensitive file systems.
 !/licenses/MMKV.txt

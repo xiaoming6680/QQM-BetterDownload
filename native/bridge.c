@@ -151,6 +151,9 @@ static LRESULT CALLBACK main_proc(HWND w,UINT m,WPARAM a,LPARAM b,UINT_PTR id,DW
     if(m==detach_message){detach(w);return 0;}
     if(m==WM_COPYDATA && b && ((COPYDATASTRUCT*)b)->dwData==BD_UI_PACKET)return bd_ui_command(w,(HWND)a,(COPYDATASTRUCT*)b,instance);
     if(m==WM_TIMER && a==BD_UI_TIMER){bd_ui_tick(w);return 0;}
+    // Wake the on-demand frame clock only while the pointer is actually moving;
+    // it idles itself again once there is no hover or card to animate.
+    if(m==WM_MOUSEMOVE||m==WM_NCMOUSEMOVE)bd_ui_wake(w);
     if(m==WM_NCHITTEST){POINT p={(short)LOWORD(b),(short)HIWORD(b)};if(bd_ui_entry_hit(w,p))return HTCLIENT;}
     if(m==WM_SETCURSOR){POINT p;if(GetCursorPos(&p)&&bd_ui_entry_hit(w,p)){SetCursor(LoadCursorW(NULL,IDC_HAND));return TRUE;}}
     if(m==WM_SYSCOMMAND && (a&0xfff0)==MENU_ID){open_settings();return 0;}

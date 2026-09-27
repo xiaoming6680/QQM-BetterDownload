@@ -25,12 +25,12 @@ namespace QqmBetterDownload {
         }
         public static void Save(string path, double scale = 2) {
             const int width = 1080, height = 566;
-            var canvas = new Canvas { Width = width, Height = height, Background = new LinearGradientBrush(Color.FromRgb(24, 39, 35), Color.FromRgb(11, 18, 21), 45) };
-            Put(canvas, new Border { Width = 28, Height = 3, Background = Brush("#40DBA6"), CornerRadius = new CornerRadius(2) }, 48, 41);
-            Put(canvas, Label("BetterDownload", 28, "#F0F6F3", true), 48, 55);
-            Put(canvas, Label("熟悉的卡片，换上 QQ 音乐绿。", 13, "#95AAA0", false), 50, 101);
-            Put(canvas, Label("标准", 12, "#9EB2A7", true), 48, 146);
-            Put(canvas, Label("简洁", 12, "#9EB2A7", true), 48, 356);
+            var canvas = new Canvas { Width = width, Height = height, Background = new LinearGradientBrush(Color.FromRgb(244, 248, 246), Color.FromRgb(233, 240, 236), 90) };
+            Put(canvas, new Border { Width = 28, Height = 3, Background = Brush("#1ECC94"), CornerRadius = new CornerRadius(2) }, 48, 41);
+            Put(canvas, Label("BetterDownload", 28, "#1F2E29", true), 48, 55);
+            Put(canvas, Label("熟悉的卡片，换上 QQ 音乐绿。", 13, "#5E6D66", false), 50, 101);
+            Put(canvas, Label("标准", 12, "#47554F", true), 48, 146);
+            Put(canvas, Label("简洁", 12, "#47554F", true), 48, 356);
             var states = new[] {
                 new WorkStatus { Id = "preview-1", State = "converting", Source = "示例.mflac", Percent = 64, Pending = 4, Message = "正在转换", Track = new TrackInfo { Title = "夜间来信", Artist = "示例歌手", Format = "FLAC" } },
                 new WorkStatus { Id = "preview-2", State = "success", Source = "示例.mflac", Output = @"C:\Music\unlock\示例.flac", Percent = 100, Message = "转换完成", Track = new TrackInfo { Title = "夜间来信", Artist = "示例歌手", Format = "FLAC" } },
@@ -40,8 +40,8 @@ namespace QqmBetterDownload {
                 var card = new CardView(null); card.Update(states[col], row == 1, col == 2 ? null : SampleCover());
                 Put(canvas, card, 48 + col * 342, row == 0 ? 176 : 386);
             }
-            Put(canvas, Label("封面取色  /  悬停保持  /  2 · 4 · 6 秒收起", 12, "#A3B7AC", false), 48, 519);
-            Put(canvas, Label("样式预览 · 示例数据", 11, "#72877E", false), 877, 520);
+            Put(canvas, Label("封面取色  /  悬停保持  /  2 · 4 · 6 秒收起", 12, "#5E6D66", false), 48, 519);
+            Put(canvas, Label("样式预览 · 示例数据", 11, "#8A9A93", false), 877, 520);
             canvas.Measure(new Size(width, height)); canvas.Arrange(new Rect(0, 0, width, height)); canvas.UpdateLayout();
             foreach (UIElement child in canvas.Children) { var card = child as CardView; if (card != null) card.FreezeProgress(); }
             var bitmap = new RenderTargetBitmap((int)(width * scale), (int)(height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32); bitmap.Render(canvas);
@@ -63,7 +63,7 @@ namespace QqmBetterDownload {
                 };
                 var card = new CardView(null); card.Update(activity, compact, i == 3 ? null : SampleCover());
                 const int width = 364, height = 236;
-                var canvas = new Canvas { Width = width, Height = height, Background = new LinearGradientBrush(Color.FromRgb(24, 39, 35), Color.FromRgb(11, 18, 21), 45) };
+                var canvas = new Canvas { Width = width, Height = height, Background = new LinearGradientBrush(Color.FromRgb(243, 247, 245), Color.FromRgb(232, 239, 235), 90) };
                 card.Measure(new Size(CardView.CardWidth, height)); Put(canvas, card, (width - CardView.CardWidth) / 2, (height - card.DesiredSize.Height) / 2);
                 canvas.Measure(new Size(width, height)); canvas.Arrange(new Rect(0, 0, width, height)); canvas.UpdateLayout(); card.FreezeProgress();
                 var bitmap = new RenderTargetBitmap(width * 2, height * 2, 192, 192, PixelFormats.Pbgra32); bitmap.Render(canvas);

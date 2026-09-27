@@ -28,7 +28,7 @@ $version = [regex]::Match([IO.File]::ReadAllText((Join-Path $projectRoot 'src\Pr
 $manifest = Join-Path $buildRoot 'payload.json'
 [ordered]@{ product = 'QQM-BetterDownload/v1'; version = $version; files = $hashes } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifest -Encoding utf8
 $archive = Join-Path $buildRoot 'payload.zip'
-Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression.FileSystem, System.IO.Compression
 $stream = [IO.File]::Open($archive, [IO.FileMode]::Create)
 try {
     $zip = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create, $true)
@@ -38,6 +38,6 @@ try {
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
 $sources = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'setup') -Filter '*.cs' | ForEach-Object FullName)
 $refs = @('/reference:System.Core.dll','/reference:System.Web.Extensions.dll','/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll','/reference:System.IO.Compression.dll','/reference:Microsoft.CSharp.dll')
-& $compiler /nologo /utf8output /optimize+ /platform:x86 /target:winexe ('/win32icon:' + (Join-Path $projectRoot 'src\BetterDownload.ico')) ('/out:' + (Join-Path $buildRoot 'BetterDownload-Setup.exe')) ('/resource:' + $archive + ',payload.zip') ('/resource:' + $manifest + ',payload.json') @refs @sources
+& $compiler /nologo /utf8output /optimize+ /platform:x86 /target:winexe ('/win32icon:' + (Join-Path $projectRoot 'src\BetterDownload.ico')) ('/out:' + (Join-Path $buildRoot 'BetterDownload-Setup.exe')) ('/resource:' + $archive + ',payload.zip') ('/resource:' + $manifest + ',payload.json') ('/resource:' + (Join-Path $projectRoot 'src\BetterDownload.ico') + ',brand.ico') @refs @sources
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 Write-Output 'Installer built: build\BetterDownload-Setup.exe'

@@ -143,7 +143,7 @@ namespace BetterDownloadSetup {
             return done;
         }
     }
-    internal static class Program {
+    internal static partial class Program {
         static readonly string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QQM-BetterDownload");
         static readonly string Launcher = Path.Combine(Root, "BetterDownload-Setup.exe");
         const string RunKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run", UninstallKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QQM-BetterDownload";
@@ -157,7 +157,56 @@ namespace BetterDownloadSetup {
             if (AgentAlive() || WorkerAlive()) throw new IOException("BetterDownload 仍在保存任务，请稍后重试。");
         }
         static Process Start(string file, string args) { return Process.Start(new ProcessStartInfo(file, args) { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden }); }
+        static string PackagedVersion() {
+            try { using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.json")) using (var r = new StreamReader(s)) { var p = new JavaScriptSerializer().Deserialize<Package>(r.ReadToEnd()); return p == null ? "" : p.version; } }
+            catch { return ""; }
+        }
+        static string InstalledVersion() {
+            try { var state = Deployment.State(Root); if (String.IsNullOrEmpty(state.current)) return null; return Deployment.Validate(Deployment.VersionPath(Root, state.current)).version; }
+            catch { return null; }
+        }
+        static bool ClientRunning() { var clients = Process.GetProcessesByName("QQMusic"); foreach (var p in clients) p.Dispose(); return clients.Length > 0; }
+        static string FindQqMusic() {
+            foreach (var p in Process.GetProcessesByName("QQMusic")) using (p) { try { return Path.GetDirectoryName(p.MainModule.FileName); } catch (Exception) { } }
+            // QQ Music can live on any drive; its installer records the location.
+            foreach (string[] entry in new[] { new[] { "SOFTWARE\\Tencent\\QQMusic", "Install" }, new[] { "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QQMusic", "InstallLocation" } }) {
+                foreach (var hive in new[] { RegistryHive.LocalMachine, RegistryHive.CurrentUser }) {
+                    try {
+                        using (var b = RegistryKey.OpenBaseKey(hive, RegistryView.Registry32))
+                        using (var k = b.OpenSubKey(entry[0])) {
+                            string install = k == null ? null : k.GetValue(entry[1]) as string;
+                            if (!String.IsNullOrEmpty(install) && File.Exists(Path.Combine(install, "QQMusic.exe"))) return install.TrimEnd('\\');
+                        }
+                    } catch (Exception) { }
+                }
+            }
+            foreach (string root in new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) }) {
+                if (String.IsNullOrEmpty(root)) continue;
+                string path = Path.Combine(root, "Tencent", "QQMusic");
+                if (File.Exists(Path.Combine(path, "QQMusic.exe"))) return path;
+            }
+            return null;
+        }
+        static string QqMusicVersion(string path) { try { return FileVersionInfo.GetVersionInfo(Path.Combine(path, "QQMusic.exe")).FileVersion; } catch (Exception) { return null; } }
+        static bool Registered() { try { using (var key = Registry.CurrentUser.OpenSubKey(UninstallKey)) return key != null; } catch (Exception) { return false; } }
+        static string PendingVersion() {
+            try { var state = Deployment.State(Root); return String.IsNullOrEmpty(state.pending) ? null : Deployment.Read<Package>(Deployment.Child(Deployment.VersionPath(Root, state.pending), "package.json")).version; }
+            catch { return null; }
+        }
+        static bool FrameworkReady() {
+            try {
+                using (var b = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32))
+                using (var k = b.OpenSubKey("SOFTWARE\\Microsoft\\NET Framework Setup\\NDP\\v4\\Full"))
+                    return k != null && Convert.ToInt32(k.GetValue("Release", 0)) >= 394802; // 4.6.2
+            } catch (Exception) { return true; }
+        }
+        [DllImport("kernel32", CharSet = CharSet.Unicode)] static extern bool DeleteFile(string path);
+        // A downloaded installer carries the browser's Mark of the Web, and
+        // File.Copy keeps it. Drop it from our own copies so the logon entry
+        // does not stop at a security prompt.
+        static void Unblock(string file) { DeleteFile(file + ":Zone.Identifier"); }
         static void Register(string version) {
+            using (var run = Registry.CurrentUser.OpenSubKey(RunKey, true)) { if (run != null && ((run.GetValue("BetterDownloadCleanup", "") as string) ?? "").EndsWith(" --cleanup")) run.DeleteValue("BetterDownloadCleanup", false); }
             using (var run = Registry.CurrentUser.CreateSubKey(RunKey)) run.SetValue("BetterDownload", Quote(Launcher) + " --startup");
             using (var key = Registry.CurrentUser.CreateSubKey(UninstallKey)) {
                 key.SetValue("DisplayName", "BetterDownload"); key.SetValue("DisplayVersion", version); key.SetValue("Publisher", "XIAOMING6680"); key.SetValue("InstallLocation", Root);
@@ -175,6 +224,7 @@ namespace BetterDownloadSetup {
                 bool locked; try { locked = single.WaitOne(0); } catch (AbandonedMutexException) { locked = true; }
                 if (!locked) throw new IOException("另一个安装或修复正在进行。");
                 try {
+                    if (!FrameworkReady()) throw new IOException("需要 .NET Framework 4.6.2 或更高版本。Windows 10 1607 及以上已自带，请先通过 Windows 更新安装。");
                     Deployment.RequireSharedLocation(Root);
                     var old = Deployment.State(Root); bool existing = File.Exists(Path.Combine(Root, "installation.json"));
                     var assembly = Assembly.GetExecutingAssembly(); string id;
@@ -189,6 +239,7 @@ namespace BetterDownloadSetup {
                         catch(IOException) { /* A currently running launcher keeps reading the version pointer. */ }
                         finally { if(File.Exists(replacement))File.Delete(replacement); }
                     }
+                    Unblock(Launcher);
                     if (!old.versions.Contains(id)) old.versions.Add(id);
                     bool defer = existing && old.current != id && AgentAlive() && Process.GetProcessesByName("QQMusic").Length > 0;
                     if (defer) old.pending = id;
@@ -196,7 +247,7 @@ namespace BetterDownloadSetup {
                     Deployment.Write(Path.Combine(Root, "installation.json"), old);
                     Register(Deployment.Validate(Deployment.VersionPath(Root, id)).version);
                     if (!defer) Start(Path.Combine(Deployment.Select(Root), "BetterDownload.exe"), "--agent").Dispose();
-                    return defer ? "更新已准备好，QQ 音乐退出后自动切换。" : "安装完成。QQ 音乐启动后自动接入，设置入口在顶部和系统托盘。";
+                    return defer ? "更新已准备好，QQ 音乐退出后自动切换。" : "安装完成。QQ 音乐启动后自动接入，设置入口在 QQ 音乐右上角。";
                 } finally { single.ReleaseMutex(); }
             }
         }
@@ -230,22 +281,32 @@ namespace BetterDownloadSetup {
             string cleaner = Path.Combine(Path.GetTempPath(), "BetterDownload-Cleanup.exe");
             if (File.Exists(cleaner) && Deployment.HashFile(cleaner) != Deployment.HashFile(Assembly.GetExecutingAssembly().Location)) cleaner = Path.Combine(Path.GetTempPath(), "BetterDownload-Cleanup-" + Guid.NewGuid().ToString("N") + ".exe");
             if (!File.Exists(cleaner)) File.Copy(Assembly.GetExecutingAssembly().Location, cleaner);
+            Unblock(cleaner);
             using (var run = Registry.CurrentUser.CreateSubKey(RunKey)) run.SetValue("BetterDownloadCleanup", Quote(cleaner) + " --cleanup");
             Start(cleaner, "--cleanup").Dispose();
         }
+        static void DropCleanupEntry() {
+            using (var run = Registry.CurrentUser.OpenSubKey(RunKey, true)) if (run != null && (string)run.GetValue("BetterDownloadCleanup", "") == Quote(Assembly.GetExecutingAssembly().Location) + " --cleanup") run.DeleteValue("BetterDownloadCleanup", false);
+        }
         static void Cleanup() {
-            var state = Deployment.State(Root);
-            for (int attempt = 0; attempt < 60; attempt++) {
-                bool done = true;
-                foreach (var id in state.versions) if (!Deployment.RemoveOwnedVersion(Root, id)) done = false;
-                if (done) {
-                    try { if (File.Exists(Launcher)) File.Delete(Launcher); }
-                    catch (IOException) { Thread.Sleep(1000); continue; }
-                    File.Delete(Path.Combine(Root, "installation.json"));
-                    using (var run = Registry.CurrentUser.OpenSubKey(RunKey, true)) if (run != null && (string)run.GetValue("BetterDownloadCleanup", "") == Quote(Assembly.GetExecutingAssembly().Location) + " --cleanup") run.DeleteValue("BetterDownloadCleanup", false);
-                    return;
+            // Share the installer's lock, and stand down when the user has
+            // reinstalled in the meantime: removing files by version id would
+            // otherwise delete the fresh installation of the same version.
+            using (var single = new Mutex(false, "Local\\QQM-BetterDownload.Setup")) {
+                for (int attempt = 0; attempt < 60; attempt++, Thread.Sleep(1000)) {
+                    bool locked; try { locked = single.WaitOne(0); } catch (AbandonedMutexException) { locked = true; }
+                    if (!locked) continue;
+                    try {
+                        if (Registered()) { DropCleanupEntry(); return; }
+                        var state = Deployment.State(Root); bool done = true;
+                        foreach (var id in state.versions) if (!Deployment.RemoveOwnedVersion(Root, id)) done = false;
+                        if (!done) continue;
+                        try { if (File.Exists(Launcher)) File.Delete(Launcher); }
+                        catch (IOException) { continue; } catch (UnauthorizedAccessException) { continue; }
+                        File.Delete(Path.Combine(Root, "installation.json"));
+                        DropCleanupEntry(); return;
+                    } finally { single.ReleaseMutex(); }
                 }
-                Thread.Sleep(1000);
             }
         }
         [STAThread] public static int Main(string[] args) {
@@ -270,14 +331,7 @@ namespace BetterDownloadSetup {
                 if (args.Contains("--install")) { Console.WriteLine(Install()); return 0; }
                 if (args.Contains("--startup")) { Startup(false); return 0; }
                 if (args.Contains("--settings") || Assembly.GetExecutingAssembly().Location.Equals(Launcher, StringComparison.OrdinalIgnoreCase)) { Startup(true); return 0; }
-                using (var form = new Form { Text = "BetterDownload 安装", ClientSize = new Size(540, 265), StartPosition = FormStartPosition.CenterScreen, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, Font = new Font("Microsoft YaHei UI", 10), BackColor = Color.FromArgb(247,249,248) }) {
-                    var title = new Label { Text = "BetterDownload", Font = new Font("Segoe UI", 25, FontStyle.Bold), Left = 28, Top = 25, AutoSize = true };
-                    var text = new Label { Text = "安装一次，QQ 音乐启动后自动接入。\n顶部设置入口 · 下载完成卡片 · 保留原文件\n\n仅安装到当前用户目录，无需管理员权限。", Left = 30, Top = 84, Width = 485, Height = 100 };
-                    var install = new Button { Text = "安装 / 修复", Left = 345, Top = 197, Width = 165, Height = 38, BackColor = Color.FromArgb(0,170,119), ForeColor = Color.White, FlatStyle = FlatStyle.Flat };
-                    bool installed = false;
-                    install.Click += delegate { if (installed) { Startup(true); form.Close(); return; } install.Enabled = false; try { text.Text = Install(); install.Text = "打开设置"; installed = true; } catch (Exception e) { text.Text = e.Message; } finally { install.Enabled = true; } };
-                    form.Controls.AddRange(new Control[] { title, text, install }); Application.Run(form);
-                }
+                RunUi();
                 return 0;
             } catch (Exception e) {
                 try { Deployment.Write(Path.Combine(Root, "setup-error.json"), new { message = e.Message, at = DateTime.UtcNow.ToString("o") }); } catch { }

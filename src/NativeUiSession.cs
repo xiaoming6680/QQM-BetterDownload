@@ -47,9 +47,11 @@ namespace QqmBetterDownload {
             string icon;
             using (var input = typeof(Program).Assembly.GetManifestResourceStream("entry.svg"))
             using (var reader = new StreamReader(input)) icon = reader.ReadToEnd();
+            // Match QQ's native top-bar buttons: a monochrome glyph that turns the
+            // client's theme green on hover/press, with no background swatch.
             File.WriteAllText(Path.Combine(AssetFolder, "entry.svg"), icon);
-            File.WriteAllText(Path.Combine(AssetFolder, "entry-hover.svg"), icon.Replace("<!--background-->", "<rect width=\"36\" height=\"32\" rx=\"6\" fill=\"#808080\" fill-opacity=\".12\"/>"));
-            File.WriteAllText(Path.Combine(AssetFolder, "entry-pressed.svg"), icon.Replace("<!--background-->", "<rect width=\"36\" height=\"32\" rx=\"6\" fill=\"#808080\" fill-opacity=\".22\"/>"));
+            File.WriteAllText(Path.Combine(AssetFolder, "entry-hover.svg"), icon.Replace("#5A5F66", "#1ECC94"));
+            File.WriteAllText(Path.Combine(AssetFolder, "entry-pressed.svg"), icon.Replace("#5A5F66", "#13BE86"));
             string html;
             using (var input = typeof(Program).Assembly.GetManifestResourceStream("settings.html"))
             using (var reader = new StreamReader(input)) html = reader.ReadToEnd();

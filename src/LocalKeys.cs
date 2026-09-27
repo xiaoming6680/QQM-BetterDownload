@@ -24,6 +24,19 @@ namespace QqmBetterDownload {
             foreach (var process in Process.GetProcessesByName("QQMusic")) {
                 using (process) { try { return Path.GetDirectoryName(process.MainModule.FileName); } catch { } }
             }
+            // QQ Music may be installed on any drive; its installer records the
+            // location in the 32-bit registry view.
+            foreach (string[] entry in new[] { new[] { "SOFTWARE\\Tencent\\QQMusic", "Install" }, new[] { "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QQMusic", "InstallLocation" } }) {
+                foreach (var hive in new[] { Microsoft.Win32.RegistryHive.LocalMachine, Microsoft.Win32.RegistryHive.CurrentUser }) {
+                    try {
+                        using (var root = Microsoft.Win32.RegistryKey.OpenBaseKey(hive, Microsoft.Win32.RegistryView.Registry32))
+                        using (var key = root.OpenSubKey(entry[0])) {
+                            string path = key == null ? null : key.GetValue(entry[1]) as string;
+                            if (!String.IsNullOrEmpty(path) && File.Exists(Path.Combine(path, "QQMusic.exe"))) return path.TrimEnd('\\');
+                        }
+                    } catch (Exception) { }
+                }
+            }
             string[] roots = { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) };
             foreach (string root in roots) {
                 string path = Path.Combine(root, "Tencent", "QQMusic");

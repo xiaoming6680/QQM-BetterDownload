@@ -48,7 +48,7 @@ namespace QqmBetterDownload {
 
     public sealed class CardView : Grid {
         public const double CardWidth = 300;
-        static readonly Color Mint = Color.FromRgb(51, 218, 165);
+        static readonly Color Mint = Color.FromRgb(30, 204, 148); // QQ 音乐品牌绿 #1ECC94
         readonly Border frame, glow;
         readonly Action open;
         TextBlock title, detail, state, brand, percent, summary, format, notice;
@@ -67,9 +67,9 @@ namespace QqmBetterDownload {
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             frame = new Border {
                 CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(1),
-                Background = Gradient("#F01A2425", "#F011191C", 110),
-                BorderBrush = Gradient("#658CE6C0", "#182F5146", 125),
-                Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 26, ShadowDepth = 8, Opacity = .34 }
+                Background = Gradient("#FFFFFFFF", "#FFF3F8F5", 90),
+                BorderBrush = Gradient("#FFE7F0EB", "#FFD6E4DD", 125),
+                Effect = new DropShadowEffect { Color = Color.FromRgb(31, 61, 51), BlurRadius = 24, ShadowDepth = 6, Opacity = .16 }
             };
             glow = new Border { CornerRadius = new CornerRadius(14), IsHitTestVisible = false };
             Children.Add(frame); Children.Add(glow);
@@ -95,7 +95,7 @@ namespace QqmBetterDownload {
             title.Text = name; title.ToolTip = name;
             string label = done ? "已完成" : error ? "未完成" : waiting ? "等待中" : "转换中";
             state.Text = "●  " + label;
-            state.Foreground = BrushOf(error ? "#FFB7A8" : waiting ? "#E6D5A1" : "#9DEACA");
+            state.Foreground = BrushOf(error ? "#E0524C" : waiting ? "#C98A16" : "#12A86B");
             string ext = info == null ? "" : info.Format;
             if (String.IsNullOrEmpty(ext) && done && !String.IsNullOrEmpty(activity.Output)) ext = Path.GetExtension(activity.Output).TrimStart('.').ToUpperInvariant();
             format.Text = ext; formatBadge.Visibility = String.IsNullOrEmpty(ext) || error ? Visibility.Collapsed : Visibility.Visible;
@@ -134,12 +134,12 @@ namespace QqmBetterDownload {
             art = new Image { Stretch = Stretch.UniformToFill, Source = currentArt ?? Mark() };
             art.Clip = new RectangleGeometry(new Rect(0, 0, cover.Width, cover.Height), compact ? 8 : 10, compact ? 8 : 10); cover.Child = art;
             Cell(top, cover, 0, 0);
-            title = Text(compact ? 12.5 : 13.5, "#F5FAF7", true);
-            state = Text(10.5, "#9DEACA", true);
-            brand = Text(9.5, "#B8CBC4", true); brand.Text = "BetterDownload";
-            detail = Text(11, "#C7D8D1", false); detail.LineHeight = 16;
-            format = Text(9, "#CDF8DD", true);
-            formatBadge = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 0, 5, 1), Background = BrushOf("#3037D99F"), BorderBrush = BrushOf("#4267E4B4"), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 6, 0), Child = format, VerticalAlignment = VerticalAlignment.Center };
+            title = Text(compact ? 12.5 : 13.5, "#20302B", true);
+            state = Text(10.5, "#12A86B", true);
+            brand = Text(9.5, "#93A69E", true); brand.Text = "BetterDownload";
+            detail = Text(11, "#5E6D66", false); detail.LineHeight = 16;
+            format = Text(9, "#0FA968", true);
+            formatBadge = new Border { CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 0, 5, 1), Background = BrushOf("#1F1ECC94"), BorderBrush = BrushOf("#3312C58C"), BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 6, 0), Child = format, VerticalAlignment = VerticalAlignment.Center };
             var description = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 3, 0, 0) }; description.Children.Add(formatBadge); description.Children.Add(detail);
             folder = FolderButton(compact); folder.Click += delegate { if (open != null) open(); };
             if (compact) {
@@ -161,11 +161,11 @@ namespace QqmBetterDownload {
             Cell(body, top, 0, 0);
             bottom = new Grid { Margin = new Thickness(0, 12, 0, 0), MinHeight = 23 };
             bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            line = new Grid { Height = compact ? 2 : 3, Background = BrushOf("#26FFFFFF"), ClipToBounds = true, VerticalAlignment = VerticalAlignment.Center };
-            fill = new Border { Height = compact ? 2 : 3, Width = 0, CornerRadius = new CornerRadius(2), Background = Gradient("#B2F18C", "#35D8B6", 0), HorizontalAlignment = HorizontalAlignment.Left };
+            line = new Grid { Height = compact ? 2 : 3, Background = BrushOf("#FFEAF0ED"), ClipToBounds = true, VerticalAlignment = VerticalAlignment.Center };
+            fill = new Border { Height = compact ? 2 : 3, Width = 0, CornerRadius = new CornerRadius(2), Background = Gradient("#FF3BD9A0", "#FF00C56A", 0), HorizontalAlignment = HorizontalAlignment.Left };
             line.Children.Add(fill); line.SizeChanged += delegate { SetProgress(true); ClipLine(); };
-            percent = Text(10.5, "#CBE1D5", true); percent.MinWidth = 32; percent.TextAlignment = TextAlignment.Right; percent.Margin = new Thickness(10, 0, 0, 0);
-            summary = Text(10.5, "#B9CEC4", false);
+            percent = Text(10.5, "#64736C", true); percent.MinWidth = 32; percent.TextAlignment = TextAlignment.Right; percent.Margin = new Thickness(10, 0, 0, 0);
+            summary = Text(10.5, "#93A69E", false);
             if (compact) {
                 if (!done && !error) { line.VerticalAlignment = VerticalAlignment.Bottom; line.Margin = new Thickness(-12, 0, -12, -9); Cell(body, line, 0, 0); line.IsHitTestVisible = false; }
             } else {
@@ -173,7 +173,7 @@ namespace QqmBetterDownload {
                 else { Cell(bottom, line, 0, 0); Cell(bottom, percent, 0, 1); }
                 bottom.Visibility = error ? Visibility.Collapsed : Visibility.Visible; Cell(body, bottom, 1, 0);
             }
-            notice = Text(10.5, "#EAD7A8", false); notice.Margin = new Thickness(0, 8, 0, 0); notice.TextWrapping = TextWrapping.Wrap; notice.MaxHeight = 54; notice.LineHeight = 16;
+            notice = Text(10.5, "#B07A12", false); notice.Margin = new Thickness(0, 8, 0, 0); notice.TextWrapping = TextWrapping.Wrap; notice.MaxHeight = 54; notice.LineHeight = 16;
             Cell(body, notice, 2, 0); root = body; Children.Add(body);
         }
         void SetProgress(bool instant) {
@@ -207,7 +207,7 @@ namespace QqmBetterDownload {
         }
         void SetGlow(Color color) {
             var brush = new RadialGradientBrush { Center = new Point(.05, .05), GradientOrigin = new Point(.05, .05), RadiusX = 1.1, RadiusY = 1.8 };
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(72, color.R, color.G, color.B), 0)); brush.GradientStops.Add(new GradientStop(Colors.Transparent, .85)); brush.Freeze(); glow.Background = brush;
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(26, color.R, color.G, color.B), 0)); brush.GradientStops.Add(new GradientStop(Colors.Transparent, .85)); brush.Freeze(); glow.Background = brush;
         }
         static Color Average(ImageSource source) {
             try {
@@ -220,15 +220,15 @@ namespace QqmBetterDownload {
         }
         static Button FolderButton(bool compact) {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
-            content.Children.Add(new System.Windows.Shapes.Path { Data = Geometry.Parse("M2,4.6 Q2,3 3.6,3 L6.1,3 7.6,4.6 12.4,4.6 Q14,4.6 14,6.2 L14,11.4 Q14,13 12.4,13 L3.6,13 Q2,13 2,11.4 Z"), Stroke = BrushOf("#E5F5EA"), StrokeThickness = 1.4, Width = 13, Height = 13, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center });
-            if (!compact) { var label = Text(10.5, "#E5F5EA", true); label.Text = "打开文件夹"; label.Margin = new Thickness(5, 0, 0, 0); content.Children.Add(label); }
-            var button = new Button { Content = content, Padding = compact ? new Thickness(6, 5, 6, 5) : new Thickness(8, 5, 9, 5), Background = BrushOf("#18FFFFFF"), BorderBrush = BrushOf("#25FFFFFF"), BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "打开输出文件夹" };
+            content.Children.Add(new System.Windows.Shapes.Path { Data = Geometry.Parse("M2,4.6 Q2,3 3.6,3 L6.1,3 7.6,4.6 12.4,4.6 Q14,4.6 14,6.2 L14,11.4 Q14,13 12.4,13 L3.6,13 Q2,13 2,11.4 Z"), Stroke = BrushOf("#0E9E62"), StrokeThickness = 1.4, Width = 13, Height = 13, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center });
+            if (!compact) { var label = Text(10.5, "#0E9E62", true); label.Text = "打开文件夹"; label.Margin = new Thickness(5, 0, 0, 0); content.Children.Add(label); }
+            var button = new Button { Content = content, Padding = compact ? new Thickness(6, 5, 6, 5) : new Thickness(8, 5, 9, 5), Background = BrushOf("#141ECC94"), BorderBrush = BrushOf("#291ECC94"), BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "打开输出文件夹" };
             var border = new FrameworkElementFactory(typeof(Border)); border.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
             border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty)); border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty)); border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty)); border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
             var presenter = new FrameworkElementFactory(typeof(ContentPresenter)); border.AppendChild(presenter);
             var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
-            var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true }; hover.Setters.Add(new Setter(Control.BackgroundProperty, BrushOf("#30FFFFFF"))); template.Triggers.Add(hover);
-            var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true }; focus.Setters.Add(new Setter(Control.BorderBrushProperty, BrushOf("#92F2C9"))); template.Triggers.Add(focus); button.Template = template;
+            var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true }; hover.Setters.Add(new Setter(Control.BackgroundProperty, BrushOf("#221ECC94"))); template.Triggers.Add(hover);
+            var focus = new Trigger { Property = UIElement.IsKeyboardFocusedProperty, Value = true }; focus.Setters.Add(new Setter(Control.BorderBrushProperty, BrushOf("#661ECC94"))); template.Triggers.Add(focus); button.Template = template;
             AutomationProperties.SetName(button, "打开输出文件夹"); return button;
         }
         public static ImageSource Mark() {

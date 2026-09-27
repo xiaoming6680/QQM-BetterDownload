@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Globalization;
 using System.Text;
 using System.Threading;
 using System.Security.Cryptography;
@@ -17,8 +18,10 @@ namespace QqmBetterDownload {
         readonly Action<string,string> action;
         readonly Thread thread;
         readonly string token, page, authority;
+        readonly object gate = new object();
         volatile bool closed;
         string state = "{}";
+        long revision;
         int clients;
         internal string Url { get; private set; }
         internal LocalPageServer(string html, Action<string,string> onAction) {
@@ -29,7 +32,19 @@ namespace QqmBetterDownload {
             Url = "http://" + authority + token + "settings";
             thread = new Thread(Accept) { IsBackground = true, Name = "BetterDownload local page" }; thread.Start();
         }
-        internal void Publish(string json) { Interlocked.Exchange(ref state, json); }
+        internal void Publish(string json) { lock (gate) { if (json == state) return; state = json; revision++; Monitor.PulseAll(gate); } }
+        // "state?after=N" is a long poll: it is held until the state moves past
+        // revision N (or 15s pass), so opening the panel or a status change
+        // reaches the page at once instead of on the next polling tick.
+        void ReplyState(Stream stream, long after) {
+            string text; long current;
+            lock (gate) {
+                int deadline = Environment.TickCount + 15000;
+                while (!closed && revision == after) { int left = deadline - Environment.TickCount; if (left <= 0 || !Monitor.Wait(gate, left)) break; }
+                text = state; current = revision;
+            }
+            Reply(stream, 200, "application/json; charset=utf-8", text, "X-State-Revision: " + current + "\r\n");
+        }
         void Accept() {
             while (!closed) {
                 try {
@@ -69,7 +84,12 @@ namespace QqmBetterDownload {
                         (headers.TryGetValue("Origin", out origin) && origin != "http://" + authority)) { Reply(stream, 403, "text/plain", "Forbidden"); return; }
                     string endpoint = request[1].Substring(token.Length);
                     if (request[0] == "GET" && endpoint == "settings") Reply(stream, 200, "text/html; charset=utf-8", page);
-                    else if (request[0] == "GET" && endpoint == "state") Reply(stream, 200, "application/json; charset=utf-8", Interlocked.CompareExchange(ref state, null, null));
+                    else if (request[0] == "GET" && endpoint == "state") ReplyState(stream, -1);
+                    else if (request[0] == "GET" && endpoint.StartsWith("state?after=", StringComparison.Ordinal)) {
+                        long after;
+                        if (!Int64.TryParse(endpoint.Substring(12), NumberStyles.None, CultureInfo.InvariantCulture, out after)) { Reply(stream, 400, "text/plain", "Bad request"); return; }
+                        ReplyState(stream, after);
+                    }
                     else if (request[0] == "POST" && endpoint == "action") {
                         string length, type; int size;
                         if (!headers.TryGetValue("Content-Type", out type) || type != "application/json" ||
@@ -87,14 +107,14 @@ namespace QqmBetterDownload {
                 }
             } catch (IOException) { } catch (SocketException) { } catch (ObjectDisposedException) { } catch (ArgumentException) { } catch (InvalidOperationException) { }
         }
-        static void Reply(Stream stream, int code, string type, string text) {
+        static void Reply(Stream stream, int code, string type, string text, string extra = "") {
             byte[] body = Encoding.UTF8.GetBytes(text);
             string status = code == 200 ? "OK" : code == 202 ? "Accepted" : code == 403 ? "Forbidden" : code == 404 ? "Not Found" : "Bad Request";
             byte[] head = Encoding.ASCII.GetBytes("HTTP/1.1 " + code + " " + status + "\r\nContent-Type: " + type + "\r\nContent-Length: " + body.Length +
-                "\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n" +
+                "\r\n" + extra + "Connection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\n" +
                 "Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\r\n\r\n");
             stream.Write(head, 0, head.Length); stream.Write(body, 0, body.Length);
         }
-        public void Dispose() { if (closed) return; closed = true; listener.Stop(); thread.Join(2200); }
+        public void Dispose() { if (closed) return; closed = true; lock (gate) Monitor.PulseAll(gate); listener.Stop(); thread.Join(2200); }
     }
 }

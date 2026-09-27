@@ -26,7 +26,7 @@ $p.ExitCode
 Get-Content .\build\setup-tests.txt
 ```
 
-退出码应为 0。安装器是 `build/BetterDownload-Setup.exe`，双击后点击“安装 / 修复”。命令行安装使用 `--install`。
+退出码应为 0。安装器是 `build/BetterDownload-Setup.exe`，单文件即可分发：程序、接入 DLL、依赖和许可证都以资源形式内嵌。双击后点击主按钮（安装 / 更新 / 修复）。命令行安装使用 `--install`，打开设置使用 `--settings`。
 
 真实安装需要从 QQ 音乐可见的用户目录运行。部分打包桌面应用启动的子进程会继承 AppData 文件重定向；此时安装器会提示在资源管理器中直接打开安装包。哈希校验只能确认内容，不能证明另一个进程能访问同一路径。安装器因此会创建临时探测文件，用文件句柄核对实际位置，检查完成后自动移除探测文件。
 
@@ -38,26 +38,28 @@ Get-Content .\build\setup-tests.txt
 
 QQ 音乐正在运行时，新版本会先暂存，客户端退出后切换。不要强制替换 QQ 音乐正在使用的 DLL，也不要用编译成功代替真实应用验收。
 
-## 更新文档图片
+## 更新文档图片与 LOGO
 
 ```powershell
 .\build\qqm-cli.exe --readme-cards .\docs\images
-.\build\qqm-cli.exe --card-preview .\docs\card-preview.png
 .\build\qqm-cli.exe --ui-smoke .\docs\images\settings.png
 ```
 
-卡片使用真实 WPF 控件；设置图由实际 WebView2 控件加载内置 HTML 后捕获。全部使用虚构歌曲与示例状态。
+卡片使用真实 WPF 控件；设置图由实际 WebView2 控件加载内置 HTML 后捕获。全部使用虚构歌曲与示例状态。本地核对全部六种卡片状态可运行 `.\build\qqm-cli.exe --card-preview .\build\card-preview.png`；只看交互效果用 `.\build\BetterDownload.exe --card-demo`，不读取密钥、不处理歌曲、不保存设置。
 
 品牌封面沿用网易云版最新的 HTML/SVG 方案。安装 Node.js、Playwright 并确保 Microsoft Edge 可用后执行：
 
 ```powershell
 npm install --no-save --package-lock=false playwright
 node .\scripts\render-docs.cjs
+node .\scripts\render-icon.cjs
 ```
 
-输出 `docs/images/cover.jpg`，源码是 `promo/cover.html`。无远程图片、字体或生成式图片依赖。
+输出 `docs/images/cover.jpg` 和 `src/BetterDownload.ico`，源码都是 `promo/cover.html` 中的同一个品牌矢量。无远程图片、字体或生成式图片依赖。
 
-托盘 ICO 由 `scripts/render-icon.cjs` 从同一品牌矢量生成，小尺寸帧单独加粗放大。应用内工具栏图标使用 `src/ui/entry.svg`，保持透明背景与细线风格。
+LOGO：连续圆角方块，填充取自 QQ 音乐标志的青绿渐变 `#14D6C0 → #0CC48F → #06BA6C`；白色下载箭头，解锁锁头为 QQ 音乐标志的黄色 `#FFDC00`。修改 LOGO 时同步更新 `src/ui/settings.html` 中 `.nbd-logo` 的渐变和内嵌 SVG，再重新生成封面、ICO 和设置页截图。
+
+ICO 用于应用、安装器窗口和任务栏，小尺寸帧单独加粗放大；安装器还把它作为资源读取，在窗口中显示 LOGO。进度卡片和安装器按钮等界面强调色使用 QQ 音乐主题绿 `#1ECC94`，与 LOGO 渐变区分。QQ 顶栏设置入口图标使用 `src/ui/entry.svg`，单色线性、无底色；`NativeUiSession` 在运行时把描边色换成客户端主题绿，得到悬停 / 按下状态。
 
 ## 生成预览包
 
@@ -65,7 +67,7 @@ node .\scripts\render-docs.cjs
 .\scripts\package-preview.ps1
 ```
 
-包包含安装器、程序、对应源码、许可证和文档，输出到 `dist/`。打包前检查 Git 候选清单，只复制检查通过的源文件，不递归夹带忽略文件。预览使用 `Preview-Cards.cmd`，不会启动转换队列或保存设置。
+面向用户只需发布 `dist/BetterDownload-Setup.exe`。预览包另含程序、对应源码、许可证和文档，输出到 `dist/`。打包前检查 Git 候选清单，只复制检查通过的源文件，不递归夹带忽略文件。预览使用 `Preview-Cards.cmd`，不会启动转换队列或保存设置。
 
 打包直接写入 ZIP，不创建展开的暂存副本；另输出 `dist/BetterDownload-Setup.exe` 方便本机安装。
 

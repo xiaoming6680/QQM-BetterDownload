@@ -9,5 +9,6 @@ LRESULT bd_ui_command(HWND window, HWND sender, const COPYDATASTRUCT *packet, HM
 BOOL bd_ui_message(const MSG *message);
 BOOL bd_ui_entry_hit(HWND window, POINT screen);
 void bd_ui_tick(HWND window);
+void bd_ui_wake(HWND window);
 void bd_ui_close(HWND window);
 #endif

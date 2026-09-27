@@ -9,7 +9,7 @@ using System.Diagnostics;
 
 namespace QqmBetterDownload {
     public static class Program {
-        public const string Version = "0.1.2";
+        public const string Version = "0.1.3";
         public static string DataFolder { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QQM-BetterDownload"); } }
         public static string DefaultRoot() {
             string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
@@ -28,6 +28,9 @@ namespace QqmBetterDownload {
         static void OpenSettings() {
             string app = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BetterDownload.exe");
             Process.Start(new ProcessStartInfo(app, "--agent") { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden }).Dispose();
+            // This process was started by a user click; pass that foreground right
+            // on so the background worker can bring QQ Music to the front.
+            ClientUi.AllowSetForegroundWindow(-1);
             for (int i = 0; i < 30; i++) { if (Signal("Local\\QQM-BetterDownload.Settings")) break; Thread.Sleep(100); }
             var clients = Process.GetProcessesByName("QQMusic"); bool running = clients.Length > 0; foreach (var p in clients) p.Dispose();
             if (!running) {
