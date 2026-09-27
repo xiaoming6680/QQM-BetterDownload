@@ -12,6 +12,14 @@ namespace BetterDownloadSetup {
         static void Check(bool value, string name) { if (!value) throw new Exception(name); passed++; }
         internal static int Run() {
             string root = Path.Combine(Path.GetTempPath(), "BetterDownload-Setup-Test-" + Guid.NewGuid().ToString("N"));
+            Deployment.RequireSharedLocation(root);
+            Check(Directory.Exists(root), "installation directory is visible at its declared path");
+            Deployment.RequireSameLocation(root, "\\\\?\\" + root.ToUpperInvariant() + "\\");
+            Check(true, "physical path comparison accepts Windows prefix and casing");
+            bool redirected = false;
+            try { Deployment.RequireSameLocation(root, Path.Combine(Path.GetTempPath(), "Packages", "PrivateCache", Path.GetFileName(root))); }
+            catch (IOException) { redirected = true; }
+            Check(redirected, "private redirected installation rejected before activation");
             var assembly = Assembly.GetExecutingAssembly(); string id;
             using (var zip = assembly.GetManifestResourceStream("payload.zip")) using (var json = assembly.GetManifestResourceStream("payload.json")) id = Deployment.Stage(root, zip, json);
             var state = new Installation { current = id, versions = new List<string> { id } };

@@ -21,7 +21,13 @@ namespace QqmBetterDownload {
                 string changed = Path.Combine(folder, "changed-location", "VipSongsDownload"), artist = Path.Combine(changed, "artist"); Directory.CreateDirectory(artist);
                 File.Copy(fixture, Path.Combine(artist, "new-name.mflac"));
                 File.Copy(fixture, Path.Combine(artist, "older-name.mflac"));
-                EventHost.Submit(data, Path.Combine(artist, "new-name.mflac"));
+                string extended = @"\\?\" + Path.Combine(artist, "new-name.mflac");
+                check(EventHost.DownloadRoot(extended) == changed, "client extended drive path identifies the ordinary download root");
+                // Match the native bridge's raw UTF-16 event; Submit already
+                // normalizes paths and would hide a reader regression.
+                string rawEvent = Path.Combine(data, "events", "extended.tmp");
+                File.WriteAllText(rawEvent, extended, new System.Text.UnicodeEncoding(false, false));
+                File.Move(rawEvent, Path.ChangeExtension(rawEvent, ".evt"));
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 while (successes < 3 && clock.ElapsedMilliseconds < 15000) done.WaitOne(200);
                 check(successes == 3 && File.Exists(Path.Combine(changed, "unlock", "artist", "new-name.flac")) && File.Exists(Path.Combine(changed, "unlock", "artist", "older-name.flac")), "changed download directory must learn and automatically backfill without manual settings");
@@ -29,6 +35,10 @@ namespace QqmBetterDownload {
             }
             var restored = new AutomaticPaths(data, download);
             check(restored.Roots.Contains(vip) && restored.Roots.Contains(Path.Combine(folder, "changed-location", "VipSongsDownload")), "automatic locations must survive restart");
+            foreach (string unsupported in new[] { @"\\?\UNC\server\share\VipSongsDownload\song.mflac", @"\\?\GLOBALROOT\Device\HarddiskVolume1\VipSongsDownload\song.mflac", @"\\?\C:relative.mflac" }) {
+                bool rejected = false; try { EventHost.DownloadRoot(unsupported); } catch (IOException) { rejected = true; }
+                check(rejected, "extended non-local or relative namespace remains unsupported");
+            }
             using (var scanned = new AutoResetEvent(false))
             using (var empty = new EventHost(Path.Combine(folder, "no-client"), Path.Combine(folder, "empty-downloads"), Path.Combine(folder, "empty-data"), status => { if (status.State == "scan-complete" && status.Message.Contains("暂未识别")) scanned.Set(); })) {
                 check(scanned.WaitOne(5000), "startup scan with no known directories must report a visible result");

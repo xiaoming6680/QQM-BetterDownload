@@ -33,6 +33,7 @@ namespace QqmBetterDownload {
                     SendMessage(window, 0x8007, IntPtr.Zero, IntPtr.Zero);
                     SendMessage(window, 0x800b, IntPtr.Zero, IntPtr.Zero);
                     check(ClientUi.IsIconic(window) && ClientUi.MainWindow(host, window) == window, "ordinary minimization must retain the client even with an empty client rectangle");
+                    check(ClientUi.MainWindow(host, IntPtr.Zero) == window, "fresh agent must discover an already minimized main window from restored bounds");
                     SendMessage(window, 0x8007, IntPtr.Zero, IntPtr.Zero);
                     IntPtr old = window;
                     int requested = 0, forced = 0;

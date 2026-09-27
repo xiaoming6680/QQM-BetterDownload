@@ -8,6 +8,8 @@ namespace QqmBetterDownload {
         internal const int Child = 0x40000000, Visible = 0x10000000, Layered = 0x80000, NoActivate = 0x08000000;
         [StructLayout(LayoutKind.Sequential)] internal struct Rect { public int Left, Top, Right, Bottom; public int Width { get { return Right - Left; } } public int Height { get { return Bottom - Top; } } }
         [StructLayout(LayoutKind.Sequential)] internal struct Point { public int X, Y; public Point(int x, int y) { X = x; Y = y; } }
+        [StructLayout(LayoutKind.Sequential)] struct Placement { public int Length, Flags, ShowCommand; public Point MinPosition, MaxPosition; public Rect NormalPosition; }
+        [DllImport("user32")] static extern bool GetWindowPlacement(IntPtr window, ref Placement placement);
         [DllImport("user32")] internal static extern bool GetClientRect(IntPtr window, out Rect rect);
         [DllImport("user32")] internal static extern bool GetWindowRect(IntPtr window, out Rect rect);
         [DllImport("user32")] internal static extern bool ClientToScreen(IntPtr window, ref Point point);
@@ -35,6 +37,14 @@ namespace QqmBetterDownload {
                 uint pid; NativeBridge.GetWindowThreadProcessId(candidate, out pid);
                 if (pid != process.Id || GetWindow(candidate, 4) != IntPtr.Zero || (GetWindowLong(candidate, -20) & 0x80) != 0) return true;
                 Rect rect; if (!GetClientRect(candidate, out rect)) return true;
+                if (IsIconic(candidate)) {
+                    // A freshly started agent has no previous HWND. Use the
+                    // restored bounds so repair/startup also works while QQ is
+                    // minimized, without forcing its window to the foreground.
+                    var placement = new Placement { Length = Marshal.SizeOf(typeof(Placement)) };
+                    if (!GetWindowPlacement(candidate, ref placement)) return true;
+                    rect = placement.NormalPosition;
+                }
                 double scale = Scale(candidate);
                 if (rect.Width < 640 * scale || rect.Height < 360 * scale) return true;
                 if (!IsWindowVisible(candidate) && candidate != previous) return true;

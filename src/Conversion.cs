@@ -18,6 +18,14 @@ namespace QqmBetterDownload {
     }
     public static class SafePath {
         public static string Full(string path) {
+            // QQ Music can report a normal local download as \\?\X:\... .
+            // .NET Framework's legacy path handling rejects that prefix.
+            // Accept only absolute drive paths, never device or UNC namespaces.
+            if (path != null && path.StartsWith(@"\\?\", StringComparison.Ordinal)) {
+                if (path.Length < 7 || !((path[4] >= 'A' && path[4] <= 'Z') || (path[4] >= 'a' && path[4] <= 'z')) || path[5] != ':' || path[6] != '\\')
+                    throw new IOException("当前仅支持本机磁盘上的普通文件路径。");
+                path = path.Substring(4);
+            }
             string full = Path.GetFullPath(path);
             return full.Length > 3 ? full.TrimEnd(Path.DirectorySeparatorChar) : full;
         }

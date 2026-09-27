@@ -69,7 +69,7 @@ namespace QqmBetterDownload {
                         string source = "";
                         try {
                             if (new FileInfo(evt).Length > 8192) throw new InvalidDataException("下载事件过长。");
-                            source = File.ReadAllText(evt, new UnicodeEncoding(false, false, true)); string root = DownloadRoot(source);
+                            source = SafePath.Full(File.ReadAllText(evt, new UnicodeEncoding(false, false, true))); string root = DownloadRoot(source);
                             if (paths.Learn(source)) manualScan = true;
                             if (!File.Exists(source)) { File.Delete(evt); retry.Remove(evt); continue; }
                             var info = new FileInfo(source); string signature = info.Length + ":" + info.LastWriteTimeUtc.Ticks;

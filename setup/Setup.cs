@@ -11,7 +11,9 @@ using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 
 namespace BetterDownloadSetup {
     internal sealed class Package { public string product = "", version = ""; public Dictionary<string,string> files = null; }
@@ -22,6 +24,29 @@ namespace BetterDownloadSetup {
     internal static class Deployment {
         internal const string Product = "QQM-BetterDownload/v1";
         static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 };
+        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern uint GetFinalPathNameByHandle(SafeFileHandle file, StringBuilder path, uint size, uint flags);
+        internal static void RequireSharedLocation(string directory) {
+            NoLinks(directory); Directory.CreateDirectory(directory);
+            // An installer launched by a packaged desktop app can inherit its
+            // AppData redirection. Hash checks still pass there, but QQ Music
+            // and Explorer cannot see the apparent installation path.
+            // Directory handles can retain the logical path of a merged MSIX
+            // view. Inspect an actual newly written file instead.
+            string probe = Path.Combine(directory, "location-" + Guid.NewGuid().ToString("N") + ".tmp");
+            using (var file = new FileStream(probe, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read | FileShare.Delete, 1, FileOptions.DeleteOnClose)) RequireFileLocation(probe, file);
+        }
+        static void RequireFileLocation(string path, FileStream file) {
+            var actual = new StringBuilder(32768);
+            uint length = GetFinalPathNameByHandle(file.SafeFileHandle, actual, (uint)actual.Capacity, 0);
+            if (length == 0 || length >= actual.Capacity) throw new IOException("无法确认安装文件的实际位置。");
+            RequireSameLocation(path, actual.ToString());
+        }
+        internal static void RequireSameLocation(string expected, string actual) {
+            if (actual.StartsWith("\\\\?\\", StringComparison.Ordinal)) actual = actual.Substring(4);
+            if (!Path.GetFullPath(expected).TrimEnd('\\').Equals(Path.GetFullPath(actual).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                throw new IOException("安装目录被当前启动环境重定向，QQ 音乐无法访问。请在资源管理器中直接打开安装包，再点击“安装 / 修复”。");
+        }
         internal static string Hash(Stream file) { using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(file)).Replace("-", ""); }
         internal static string HashFile(string file) { using (var f = File.OpenRead(file)) return Hash(f); }
         internal static void NoLinks(string path) {
@@ -46,7 +71,13 @@ namespace BetterDownloadSetup {
         internal static Package Validate(string directory) {
             var p = Read<Package>(Child(directory, "package.json"));
             if (p == null || p.product != Product || p.files == null || !p.files.ContainsKey("BetterDownload.exe") || !p.files.ContainsKey("BetterDownloadBridge.dll") || !p.files.ContainsKey("TagLibSharp.dll")) throw new InvalidDataException("安装包缺少必要文件。");
-            foreach (var item in p.files) if (!String.Equals(HashFile(Child(directory, item.Key)), item.Value, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("安装文件校验失败：" + item.Key);
+            foreach (var item in p.files) {
+                string path = Child(directory, item.Key);
+                using (var file = File.OpenRead(path)) {
+                    RequireFileLocation(path, file);
+                    if (!String.Equals(Hash(file), item.Value, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("安装文件校验失败：" + item.Key);
+                }
+            }
             return p;
         }
         internal static string Stage(string root, Stream archive, Stream manifest) {
@@ -144,6 +175,7 @@ namespace BetterDownloadSetup {
                 bool locked; try { locked = single.WaitOne(0); } catch (AbandonedMutexException) { locked = true; }
                 if (!locked) throw new IOException("另一个安装或修复正在进行。");
                 try {
+                    Deployment.RequireSharedLocation(Root);
                     var old = Deployment.State(Root); bool existing = File.Exists(Path.Combine(Root, "installation.json"));
                     var assembly = Assembly.GetExecutingAssembly(); string id;
                     using (var zip = assembly.GetManifestResourceStream("payload.zip")) using (var json = assembly.GetManifestResourceStream("payload.json")) id = Deployment.Stage(Root, zip, json);
@@ -175,6 +207,7 @@ namespace BetterDownloadSetup {
             state.previous = state.current; state.current = state.pending; state.pending = ""; Deployment.Write(Path.Combine(Root, "installation.json"), state);
         }
         static void Startup(bool settings) {
+            Deployment.RequireSharedLocation(Root);
             ActivatePending(); string app;
             try { app = Path.Combine(Deployment.Select(Root), "BetterDownload.exe"); }
             catch (IOException) { Install(); app = Path.Combine(Deployment.Select(Root), "BetterDownload.exe"); }
