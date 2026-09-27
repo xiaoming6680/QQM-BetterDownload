@@ -48,11 +48,20 @@ namespace QqmBetterDownload {
             if (!Object.ReferenceEquals(bytes, artwork)) { artwork = bytes; image = CardView.LoadArt(bytes); }
             if (appear || ui.CardVisible) Render(appear);
         }
+        // The canvas is reused for every frame. A style switch or new wording
+        // changes the height only in the queued layout pass, so settle that
+        // first; one pass would size the texture from the previous frame and
+        // stretch or clip the card. Then apply the frozen progress width.
+        internal static void Layout(Border canvas, CardView view) {
+            double width = CardView.CardWidth + 40;
+            canvas.Measure(new Size(width,500));canvas.UpdateLayout();
+            canvas.Arrange(new Rect(0,0,width,canvas.DesiredSize.Height));canvas.UpdateLayout();
+            view.FreezeProgress();canvas.UpdateLayout();
+        }
         void Render(bool appear) {
             if (!ui.Ready) return;
             view.Update(latest, compact, image);
-            canvas.Measure(new Size(CardView.CardWidth + 40,500));
-            canvas.Arrange(new Rect(0,0,CardView.CardWidth + 40,canvas.DesiredSize.Height));canvas.UpdateLayout();view.FreezeProgress();
+            Layout(canvas, view);
             double scale = ClientUi.Scale(window);
             var bitmap = new RenderTargetBitmap((int)Math.Ceiling(canvas.ActualWidth * scale),(int)Math.Ceiling(canvas.ActualHeight * scale),96 * scale,96 * scale,PixelFormats.Pbgra32);
             bitmap.Render(canvas);var png = new PngBitmapEncoder();png.Frames.Add(BitmapFrame.Create(bitmap));
@@ -68,5 +77,29 @@ namespace QqmBetterDownload {
         internal void OpenFolder() { if (latest != null && !String.IsNullOrEmpty(latest.Output) && openFolder != null) openFolder(Path.GetDirectoryName(latest.Output)); }
         public void Dismiss() { session.Hide(); ui.DismissCard(); }
         public void Dispose() { if (disposed) return; Dismiss(); disposed = true; }
+    }
+    // A QQ Music build whose UI is not adapted still shows progress: the
+    // standalone card anchors to the client window instead of drawing inside it.
+    internal sealed class AdaptiveCard : ICardPresenter {
+        readonly NativeUiSession ui;
+        readonly Func<ProgressCard> create;
+        ProgressCard window;
+        string mode = "all";
+        bool compact;
+        int stay = 4000;
+        internal NativeCard Native { get; private set; }
+        internal bool WindowVisible { get { return window != null && window.IsVisible; } }
+        internal AdaptiveCard(NativeUiSession session, NativeCard inside, Func<ProgressCard> outside) { ui = session; Native = inside; create = outside; }
+        public void Configure(string notify, bool small, int duration) {
+            mode = notify; compact = small; stay = duration;
+            Native.Configure(notify, small, duration); if (window != null) window.Configure(notify, small, duration);
+        }
+        public void Receive(WorkStatus status, bool force = false) {
+            if (!ui.Unavailable) { if (window != null) window.Dismiss(); Native.Receive(status, force); return; }
+            if (window == null) { window = create(); window.Configure(mode, compact, stay); }
+            window.Receive(status, force);
+        }
+        public void Dismiss() { Native.Dismiss(); if (window != null) window.Dismiss(); }
+        public void Dispose() { Native.Dispose(); if (window != null) window.Dispose(); }
     }
 }

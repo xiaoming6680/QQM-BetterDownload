@@ -54,6 +54,35 @@ namespace BetterDownloadSetup {
             Check(File.ReadAllText(Path.Combine(root, "settings.json")) == "preserve me" && File.ReadAllText(Path.Combine(root, "receipts.json")) == "preserve me", "uninstall preserves settings and receipts");
             Check(File.ReadAllText(Path.Combine(installed, "user-note.txt")) == "preserve me", "uninstall preserves unknown files");
             Check(!File.Exists(Path.Combine(installed, "BetterDownload.exe")), "owned binary removed");
+            // Only when the user ticks it: BetterDownload's own data goes, other files stay.
+            foreach (string name in Deployment.DataFiles) File.WriteAllText(Path.Combine(root, name), "data");
+            foreach (string name in Deployment.DataFolders) { Directory.CreateDirectory(Path.Combine(root, name, "nested")); File.WriteAllText(Path.Combine(root, name, "nested", "data.bin"), "data"); }
+            File.WriteAllText(Path.Combine(root, "user-note.txt"), "preserve me");
+            Check(Deployment.RemoveData(root), "chosen data removal completes");
+            Check(Deployment.DataFiles.All(n => !File.Exists(Path.Combine(root, n))) && Deployment.DataFolders.All(n => !Directory.Exists(Path.Combine(root, n))), "settings, receipts, status and caches removed");
+            Check(File.ReadAllText(Path.Combine(root, "user-note.txt")) == "preserve me", "data removal keeps unknown files");
+            string outside = Path.Combine(Path.GetTempPath(), "BetterDownload-Setup-Outside-" + Guid.NewGuid().ToString("N")), junction = Path.Combine(root, "webview");
+            Directory.CreateDirectory(outside); File.WriteAllText(Path.Combine(outside, "keep.txt"), "keep");
+            using (var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", "/c mklink /J \"" + junction + "\" \"" + outside + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })) { mklink.StandardOutput.ReadToEnd(); mklink.WaitForExit(); }
+            Check(Directory.Exists(junction) && (File.GetAttributes(junction) & FileAttributes.ReparsePoint) != 0, "test junction created");
+            // Left in place and never followed, without failing the rest: a pending
+            // cleanup must finish instead of retrying at every sign-in.
+            Check(Deployment.RemoveData(root) && Directory.Exists(junction) && File.ReadAllText(Path.Combine(outside, "keep.txt")) == "keep", "a link in the data folder is left alone, never followed");
+            Directory.Delete(junction); Directory.Delete(outside, true);
+            string empty = Path.Combine(Path.GetTempPath(), "BetterDownload-Setup-Empty-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(empty, "versions")); Deployment.RemoveEmpty(empty);
+            Check(!Directory.Exists(empty), "emptied installation folder removed");
+            Deployment.RemoveEmpty(root); Check(File.Exists(Path.Combine(root, "user-note.txt")), "folder with other files kept");
+            // Upgrades remove only the settings shortcut earlier versions made.
+            string launcher = Path.Combine(root, "BetterDownload-Setup.exe"), other = Path.Combine(root, "Other.exe");
+            File.WriteAllText(launcher, ""); File.WriteAllText(other, "");
+            Func<string, string, string, string> link = delegate(string name, string target, string arguments) {
+                string path = Path.Combine(root, name); dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")); dynamic shortcut = shell.CreateShortcut(path);
+                shortcut.TargetPath = target; shortcut.Arguments = arguments; shortcut.Save(); return path;
+            };
+            string legacy = link("legacy.lnk", launcher, "--settings"), plain = link("plain.lnk", launcher, ""), foreign = link("foreign.lnk", other, "--settings");
+            Check(Deployment.RemoveSettingsShortcut(legacy, launcher) && !File.Exists(legacy), "legacy settings shortcut removed");
+            Check(!Deployment.RemoveSettingsShortcut(plain, launcher) && !Deployment.RemoveSettingsShortcut(foreign, launcher) && File.Exists(plain) && File.Exists(foreign), "other shortcuts kept");
             // Delete only this generated test tree, after resolving containment.
             if (!Path.GetFullPath(root).StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase)) throw new Exception("test cleanup path invalid");
             Deployment.NoLinks(root); Directory.Delete(root, true);

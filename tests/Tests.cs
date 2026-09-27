@@ -55,6 +55,7 @@ namespace QqmBetterDownload {
                     Check(Descendants<TextBlock>(view).Any(t => t.Text.Contains("无本地封面")), "missing cover warning must remain visible in both styles");
                 }
             }
+            CardLayoutTests.Run(Check);
             CardPreview.Save(Path.Combine(folder, "cards.png"), 1);
             Check(new FileInfo(Path.Combine(folder, "cards.png")).Length > 10000, "native preview was not rendered");
             Check(CardView.LoadArt(new byte[] { 0, 1, 2, 3 }) == null, "bad cover should safely fall back");
@@ -122,15 +123,23 @@ namespace QqmBetterDownload {
             Console.WriteLine("PASS real track: encrypted tags match completed audio; local cover matches embedded cover and decodes. No track data saved.");
         }
         [STAThread] public static int Main(string[] args) {
+            // Children for the isolated key-interface tests; the second one
+            // accepts the unsigned stand-in DLLs.
+            if (args.Length == 2 && args[0] == KeyInterface.ChildSwitch) return KeyInterface.ChildMain(args[1]);
+            if (args.Length == 2 && args[0] == "--derive-store-test") { KeyInterface.AllowUnsigned = true; return KeyInterface.ChildMain(args[1]); }
             try {
                 Forms.Application.EnableVisualStyles(); Forms.Application.SetCompatibleTextRenderingDefault(false);
                 if (args.Length == 5 && args[0] == "--real-metadata") { RealMetadata(args[1], args[2], args[3], args[4]); return 0; }
+                if (args.Length == 2 && args[0] == "--real-client") { CompatibilityTests.RealClient(Check, args[1]); Console.WriteLine("PASS " + passed + " real-client compatibility assertions; no keys or names printed."); return 0; }
                 string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test-runs", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
                 if (args.Length == 1 && args[0] == "--local-page") { LocalPageTests.Run(Check); Console.WriteLine("PASS " + passed + " local-page assertions."); return 0; }
+                if (args.Length == 1 && args[0] == "--intro") { PreviewPageTests.Run(Check); IntroPageTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " first-run notice assertions."); return 0; }
+                if (args.Length == 1 && args[0] == "--update") { UpdateTests.Run(Check); Console.WriteLine("PASS " + passed + " update-check assertions; offline."); return 0; }
+                if (args.Length == 1 && args[0] == "--compat") { CompatibilityTests.Run(Check, folder); CompatibilityTests.Fallback(Check, folder); Console.WriteLine("PASS " + passed + " compatibility assertions."); return 0; }
                 if (args.Length == 1 && args[0] == "--shutdown") { ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " shutdown assertions."); return 0; }
                 if (args.Length == 1 && args[0] == "--lifecycle") { LifecycleTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " lifecycle assertions."); return 0; }
                 if (args.Length == 1 && args[0] == "--bridge") { BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " bridge and preview shutdown assertions."); return 0; }
-                Notifications(); Metadata(folder); LegacyTests.Run(Check, folder); AutomaticTests.Run(Check, folder); LocalPageTests.Run(Check); Visuals(folder); PreviewPageTests.Run(Check); LifecycleTests.Run(Check, folder); BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder);
+                Notifications(); Metadata(folder); LegacyTests.Run(Check, folder); AutomaticTests.Run(Check, folder); LocalPageTests.Run(Check); UpdateTests.Run(Check); CompatibilityTests.Run(Check, folder); CompatibilityTests.Fallback(Check, folder); Visuals(folder); PreviewPageTests.Run(Check); IntroPageTests.Run(Check, folder); SettingsButtonTests.Run(Check); LifecycleTests.Run(Check, folder); BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder);
                 Console.WriteLine("PASS " + passed + " assertions; synthetic fixtures only."); return 0;
             } catch (Exception e) { Console.Error.WriteLine(e); return 1; }
         }

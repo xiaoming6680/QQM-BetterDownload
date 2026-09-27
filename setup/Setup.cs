@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Management;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Threading;
@@ -14,12 +15,19 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
+using QqmBetterDownload;
 
 namespace BetterDownloadSetup {
     internal sealed class Package { public string product = "", version = ""; public Dictionary<string,string> files = null; }
     internal sealed class Installation {
         public string product = Deployment.Product, current = "", previous = "", pending = "";
         public List<string> versions = new List<string>();
+    }
+    // A finished operation, as the installer window reports it.
+    internal sealed class Outcome {
+        internal readonly string Title, Detail; internal readonly bool Installed;
+        internal Outcome(string title, string detail, bool installed) { Title = title; Detail = detail; Installed = installed; }
+        public override string ToString() { return Title + "。" + Detail; }
     }
     internal static class Deployment {
         internal const string Product = "QQM-BetterDownload/v1";
@@ -142,6 +150,44 @@ namespace BetterDownloadSetup {
             if (done && Directory.GetFiles(dir).All(f => Path.GetFileName(f) == "package.json") && Directory.GetDirectories(dir).Length == 0) { File.Delete(manifest); Directory.Delete(dir); return true; }
             return done;
         }
+        // What BetterDownload itself writes next to the installation: settings,
+        // conversion receipts, status files, the event spool, QQ-side textures
+        // and the fallback window's browser data. Songs live elsewhere and stay.
+        internal static readonly string[] DataFiles = { "settings.json", "receipts.json", "detected-paths.json", "agent-status.json", "worker-status.json", "worker-error.json", "setup-error.json", "shortcut-owned.txt" };
+        internal static readonly string[] DataFolders = { "events", "native-ui", "webview" };
+        // A link at one of our names is the user's own arrangement: it is left
+        // in place and never followed, and does not stop the rest.
+        static bool Linked(string path) { return (File.Exists(path) || Directory.Exists(path)) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
+        // Only these names inside a link-free root; true once all are gone or left as links.
+        internal static bool RemoveData(string root) {
+            NoLinks(root); bool done = true;
+            foreach (string name in DataFiles.Concat(DataFolders)) {
+                string path = Path.Combine(root, name); bool folder = DataFolders.Contains(name);
+                if ((folder ? !Directory.Exists(path) : !File.Exists(path)) || Linked(path)) continue;
+                // Directory.Delete removes nested links themselves, not their targets.
+                try { if (folder) Directory.Delete(path, true); else File.Delete(path); }
+                catch (IOException) { done = false; } catch (UnauthorizedAccessException) { done = false; }
+            }
+            return done;
+        }
+        // After a full removal: the emptied versions folder, then the root,
+        // each only if nothing else (such as a user's own file) is left in it.
+        internal static void RemoveEmpty(string root) {
+            NoLinks(root);
+            foreach (string path in new[] { Path.Combine(root, "versions"), root }) {
+                if (Linked(path)) continue;
+                try { if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any()) Directory.Delete(path); }
+                catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+        }
+        // Up to 0.1.3 the installer added a Start-menu shortcut that opened
+        // settings through itself. Remove exactly that one: our launcher, --settings.
+        internal static bool RemoveSettingsShortcut(string link, string launcher) {
+            if (!File.Exists(link)) return false;
+            dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")); dynamic shortcut = shell.CreateShortcut(link);
+            if (!String.Equals((string)shortcut.TargetPath, launcher, StringComparison.OrdinalIgnoreCase) || ((string)shortcut.Arguments).Trim() != "--settings") return false;
+            File.Delete(link); return true;
+        }
     }
     internal static partial class Program {
         static readonly string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QQM-BetterDownload");
@@ -154,7 +200,22 @@ namespace BetterDownloadSetup {
         static void Stop() {
             Signal("Local\\QQM-BetterDownload.AgentStop"); Signal("Local\\QQM-BetterDownload.WorkerStop");
             var timer = Stopwatch.StartNew(); while ((AgentAlive() || WorkerAlive()) && timer.ElapsedMilliseconds < 15000) Thread.Sleep(100);
+            if (AgentAlive() && !WorkerAlive()) EndStuckAgents();
             if (AgentAlive() || WorkerAlive()) throw new IOException("BetterDownload 仍在保存任务，请稍后重试。");
+        }
+        // An agent that ignores the stop signal is stuck. It saves nothing (the
+        // worker does), so only our own agent processes are ended, never workers.
+        static void EndStuckAgents() {
+            string versions = Path.Combine(Root, "versions") + "\\";
+            try {
+                using (var query = new ManagementObjectSearcher("SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name = 'BetterDownload.exe'"))
+                foreach (ManagementObject item in query.Get()) using (item) {
+                    string path = item["ExecutablePath"] as string, command = item["CommandLine"] as string;
+                    if (path == null || command == null || !path.StartsWith(versions, StringComparison.OrdinalIgnoreCase) || !command.TrimEnd().EndsWith(" --agent", StringComparison.Ordinal)) continue;
+                    try { using (var agent = Process.GetProcessById(Convert.ToInt32(item["ProcessId"]))) { agent.Kill(); agent.WaitForExit(5000); } }
+                    catch (ArgumentException) { } catch (InvalidOperationException) { } catch (System.ComponentModel.Win32Exception) { }
+                }
+            } catch (ManagementException) { } catch (COMException) { }
         }
         static Process Start(string file, string args) { return Process.Start(new ProcessStartInfo(file, args) { UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden }); }
         static string PackagedVersion() {
@@ -205,21 +266,46 @@ namespace BetterDownloadSetup {
         // File.Copy keeps it. Drop it from our own copies so the logon entry
         // does not stop at a security prompt.
         static void Unblock(string file) { DeleteFile(file + ":Zone.Identifier"); }
+        static string CleanupArguments(bool purge) { return purge ? "--cleanup --purge" : "--cleanup"; }
         static void Register(string version) {
-            using (var run = Registry.CurrentUser.OpenSubKey(RunKey, true)) { if (run != null && ((run.GetValue("BetterDownloadCleanup", "") as string) ?? "").EndsWith(" --cleanup")) run.DeleteValue("BetterDownloadCleanup", false); }
+            // Reinstalling cancels a pending cleanup, including its data removal.
+            using (var run = Registry.CurrentUser.OpenSubKey(RunKey, true)) { string pending = (run == null ? null : run.GetValue("BetterDownloadCleanup", "") as string) ?? ""; if (pending.EndsWith(" " + CleanupArguments(false)) || pending.EndsWith(" " + CleanupArguments(true))) run.DeleteValue("BetterDownloadCleanup", false); }
             using (var run = Registry.CurrentUser.CreateSubKey(RunKey)) run.SetValue("BetterDownload", Quote(Launcher) + " --startup");
             using (var key = Registry.CurrentUser.CreateSubKey(UninstallKey)) {
-                key.SetValue("DisplayName", "BetterDownload"); key.SetValue("DisplayVersion", version); key.SetValue("Publisher", "XIAOMING6680"); key.SetValue("InstallLocation", Root);
-                key.SetValue("UninstallString", Quote(Launcher) + " --uninstall-ask"); key.SetValue("QuietUninstallString", Quote(Launcher) + " --uninstall"); key.SetValue("NoModify", 1); key.SetValue("NoRepair", 0);
+                key.SetValue("DisplayName", "BetterDownload"); key.SetValue("DisplayVersion", version); key.SetValue("Publisher", "XIAOMING6680"); key.SetValue("InstallLocation", Root); key.SetValue("DisplayIcon", Launcher + ",0");
+                key.SetValue("UninstallString", Quote(Launcher) + " --uninstall-ask"); key.SetValue("QuietUninstallString", Quote(Launcher) + " --uninstall");
+                // “修改” in Windows' installed-apps list reopens this installer window.
+                key.SetValue("ModifyPath", Quote(Launcher)); key.SetValue("NoModify", 0); key.SetValue("NoRepair", 1);
             }
-            string link = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "BetterDownload.lnk");
-            if (!File.Exists(link)) {
-                dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")); dynamic shortcut = shell.CreateShortcut(link);
-                shortcut.TargetPath = Launcher; shortcut.Arguments = "--settings"; shortcut.Description = "BetterDownload 设置"; shortcut.Save();
-                File.WriteAllText(Path.Combine(Root, "shortcut-owned.txt"), link, Encoding.UTF8);
-            }
+            RemoveLegacyShortcut();
         }
-        static string Install() {
+        // Settings live only inside QQ Music; the installer adds no shortcut.
+        static void RemoveLegacyShortcut() {
+            try {
+                Deployment.RemoveSettingsShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "BetterDownload.lnk"), Launcher);
+                string marker = Path.Combine(Root, "shortcut-owned.txt"); if (File.Exists(marker)) File.Delete(marker);
+            } catch (Exception) { /* A leftover shortcut only reopens this window. */ }
+        }
+        // Settings open from QQ Music's top-right entry, or from its window menu
+        // while the client's interface is not adapted yet.
+        static bool EntryInClient() {
+            string client = FindQqMusic(), reason; if (client == null) return true;
+            try { var ui = ClientCompatibility.Interface(client, out reason); return ui == Support.Verified || ui == Support.Candidate; }
+            catch (Exception) { return true; }
+        }
+        // What the user needs next: where settings are after a first install,
+        // and when a prepared version takes over.
+        static Outcome Result(bool fresh, string before, string after, bool deferred) {
+            if (fresh) return new Outcome("安装完成", (ClientRunning() ? "正在接入 QQ 音乐，" : "打开 QQ 音乐后自动接入，") + (EntryInClient() ? "点击右上角的图标即可设置。" : "设置在窗口菜单（Alt+空格）中。"), true);
+            if (before != null && before != after) {
+                if (deferred) return new Outcome("v" + after + " 已准备好", "QQ 音乐退出后自动切换，设置和转换记录会保留。", true);
+                Version from = ParseVersion(before), to = ParseVersion(after);
+                return new Outcome((from != null && to != null && to < from ? "已切换到 v" : "已更新到 v") + after, "设置和转换记录已保留。", true);
+            }
+            if (deferred) return new Outcome("修复已准备好", "QQ 音乐退出后自动生效。", true);
+            return new Outcome("修复完成", ClientRunning() ? "正在重新接入 QQ 音乐。" : "打开 QQ 音乐后自动接入。", true);
+        }
+        internal static Outcome Install() {
             using (var single = new Mutex(false, "Local\\QQM-BetterDownload.Setup")) {
                 bool locked; try { locked = single.WaitOne(0); } catch (AbandonedMutexException) { locked = true; }
                 if (!locked) throw new IOException("另一个安装或修复正在进行。");
@@ -227,6 +313,7 @@ namespace BetterDownloadSetup {
                     if (!FrameworkReady()) throw new IOException("需要 .NET Framework 4.6.2 或更高版本。Windows 10 1607 及以上已自带，请先通过 Windows 更新安装。");
                     Deployment.RequireSharedLocation(Root);
                     var old = Deployment.State(Root); bool existing = File.Exists(Path.Combine(Root, "installation.json"));
+                    bool fresh = !Registered(); string before = fresh ? null : InstalledVersion();
                     var assembly = Assembly.GetExecutingAssembly(); string id;
                     using (var zip = assembly.GetManifestResourceStream("payload.zip")) using (var json = assembly.GetManifestResourceStream("payload.json")) id = Deployment.Stage(Root, zip, json);
                     // Refresh the owned launcher too: its embedded payload is
@@ -245,50 +332,64 @@ namespace BetterDownloadSetup {
                     if (defer) old.pending = id;
                     else { Stop(); if (old.current != id) old.previous = old.current; old.current = id; old.pending = ""; }
                     Deployment.Write(Path.Combine(Root, "installation.json"), old);
-                    Register(Deployment.Validate(Deployment.VersionPath(Root, id)).version);
+                    string version = Deployment.Validate(Deployment.VersionPath(Root, id)).version;
+                    Register(version);
                     if (!defer) Start(Path.Combine(Deployment.Select(Root), "BetterDownload.exe"), "--agent").Dispose();
-                    return defer ? "更新已准备好，QQ 音乐退出后自动切换。" : "安装完成。QQ 音乐启动后自动接入，设置入口在 QQ 音乐右上角。";
+                    return Result(fresh, before, version, defer);
                 } finally { single.ReleaseMutex(); }
             }
         }
-        static void ActivatePending() {
+        // wait: the agent asks for the switch as soon as QQ Music's window is
+        // gone, but the process can take several more seconds to exit. Giving up
+        // then would restart the old agent instead of switching.
+        static void ActivatePending(bool wait) {
             var state = Deployment.State(Root); if (String.IsNullOrEmpty(state.pending)) return;
-            if (Process.GetProcessesByName("QQMusic").Length != 0) return;
+            for (int i = 0; wait && i < 40 && ClientRunning(); i++) Thread.Sleep(500);
+            if (ClientRunning()) return;
             Deployment.Validate(Deployment.VersionPath(Root, state.pending)); Stop();
             state.previous = state.current; state.current = state.pending; state.pending = ""; Deployment.Write(Path.Combine(Root, "installation.json"), state);
         }
-        static void Startup(bool settings) {
+        static void Startup() {
             Deployment.RequireSharedLocation(Root);
-            ActivatePending(); string app;
+            ActivatePending(false); string app;
             try { app = Path.Combine(Deployment.Select(Root), "BetterDownload.exe"); }
             catch (IOException) { Install(); app = Path.Combine(Deployment.Select(Root), "BetterDownload.exe"); }
             Start(app, "--agent").Dispose();
-            if (settings) Start(app, "").Dispose();
         }
-        static void Uninstall() {
+        internal static Outcome Uninstall() { return Uninstall(false); }
+        // purge: the user also chose to delete BetterDownload's own data
+        // (settings, receipts, caches). Songs are never touched.
+        internal static Outcome Uninstall(bool purge) {
             Stop();
             using (var run = Registry.CurrentUser.OpenSubKey(RunKey, true)) { if (run != null && (string)run.GetValue("BetterDownload", "") == Quote(Launcher) + " --startup") run.DeleteValue("BetterDownload", false); }
             using (var key = Registry.CurrentUser.OpenSubKey(UninstallKey)) { if (key != null && (string)key.GetValue("InstallLocation", "") != Root) throw new IOException("卸载记录不匹配。"); }
             Registry.CurrentUser.DeleteSubKey(UninstallKey, false);
-            string marker = Path.Combine(Root, "shortcut-owned.txt");
-            if (File.Exists(marker)) {
-                string link = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "BetterDownload.lnk");
-                if (File.Exists(link)) { dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")); dynamic shortcut = shell.CreateShortcut(link); if ((string)shortcut.TargetPath == Launcher) File.Delete(link); }
-                File.Delete(marker);
-            }
+            RemoveLegacyShortcut();
+            // Whatever is still in use (QQ-side textures, browser data) goes with the cleanup below.
+            bool removed = false;
+            if (purge) try { removed = Deployment.RemoveData(Root); } catch (IOException) { }
             // The bridge can stay loaded until QQ exits. A temporary copy retries
-            // deletion without terminating QQ or deleting songs/settings/receipts.
+            // deletion without terminating QQ, and keeps songs/settings/receipts
+            // unless the user chose to delete the data too.
             string cleaner = Path.Combine(Path.GetTempPath(), "BetterDownload-Cleanup.exe");
             if (File.Exists(cleaner) && Deployment.HashFile(cleaner) != Deployment.HashFile(Assembly.GetExecutingAssembly().Location)) cleaner = Path.Combine(Path.GetTempPath(), "BetterDownload-Cleanup-" + Guid.NewGuid().ToString("N") + ".exe");
             if (!File.Exists(cleaner)) File.Copy(Assembly.GetExecutingAssembly().Location, cleaner);
             Unblock(cleaner);
-            using (var run = Registry.CurrentUser.CreateSubKey(RunKey)) run.SetValue("BetterDownloadCleanup", Quote(cleaner) + " --cleanup");
-            Start(cleaner, "--cleanup").Dispose();
+            using (var run = Registry.CurrentUser.CreateSubKey(RunKey)) run.SetValue("BetterDownloadCleanup", Quote(cleaner) + " " + CleanupArguments(purge));
+            Start(cleaner, CleanupArguments(purge)).Dispose();
+            bool client = ClientRunning();
+            if (!purge) return new Outcome("已卸载", "歌曲、设置和转换记录均已保留。" + (client ? "剩余组件会在 QQ 音乐退出后清理。" : ""), false);
+            if (removed) return new Outcome("已卸载", "设置、转换记录和缓存已删除，歌曲保留。" + (client ? "剩余组件会在 QQ 音乐退出后清理。" : ""), false);
+            return new Outcome("已卸载", "歌曲保留；设置、转换记录和缓存" + (client ? "会在 QQ 音乐退出后删除。" : "稍后自动删除。"), false);
         }
         static void DropCleanupEntry() {
-            using (var run = Registry.CurrentUser.OpenSubKey(RunKey, true)) if (run != null && (string)run.GetValue("BetterDownloadCleanup", "") == Quote(Assembly.GetExecutingAssembly().Location) + " --cleanup") run.DeleteValue("BetterDownloadCleanup", false);
+            string self = Quote(Assembly.GetExecutingAssembly().Location) + " ";
+            using (var run = Registry.CurrentUser.OpenSubKey(RunKey, true)) {
+                string pending = run == null ? null : run.GetValue("BetterDownloadCleanup", "") as string;
+                if (pending == self + CleanupArguments(false) || pending == self + CleanupArguments(true)) run.DeleteValue("BetterDownloadCleanup", false);
+            }
         }
-        static void Cleanup() {
+        static void Cleanup(bool purge) {
             // Share the installer's lock, and stand down when the user has
             // reinstalled in the meantime: removing files by version id would
             // otherwise delete the fresh installation of the same version.
@@ -304,6 +405,8 @@ namespace BetterDownloadSetup {
                         try { if (File.Exists(Launcher)) File.Delete(Launcher); }
                         catch (IOException) { continue; } catch (UnauthorizedAccessException) { continue; }
                         File.Delete(Path.Combine(Root, "installation.json"));
+                        if (purge && !Deployment.RemoveData(Root)) continue;
+                        if (purge) Deployment.RemoveEmpty(Root);
                         DropCleanupEntry(); return;
                     } finally { single.ReleaseMutex(); }
                 }
@@ -320,18 +423,20 @@ namespace BetterDownloadSetup {
                     Console.Error.WriteLine(failure); return 1;
                 }
             }
-            Application.EnableVisualStyles();
+            PrepareUi();
             try {
-                if (args.Contains("--cleanup")) { Cleanup(); return 0; }
-                if (args.Contains("--uninstall") || args.Contains("--uninstall-ask")) {
-                    if (args.Contains("--uninstall-ask") && MessageBox.Show("卸载 BetterDownload？歌曲、设置和转换记录会保留。", "BetterDownload", MessageBoxButtons.OKCancel) != DialogResult.OK) return 0;
-                    Uninstall(); return 0;
-                }
-                if (args.Contains("--activate-pending")) { ActivatePending(); Startup(false); return 0; }
+                if (args.Contains("--ui-preview")) { int at = Array.IndexOf(args, "--ui-preview"); PreviewUi(at + 1 < args.Length ? args[at + 1] : "setup-preview"); return 0; }
+                // A working directory inside the installation would keep it from being removed.
+                if (args.Contains("--cleanup")) { Directory.SetCurrentDirectory(Path.GetTempPath()); Cleanup(args.Contains("--purge")); return 0; }
+                if (args.Contains("--uninstall")) { Uninstall(args.Contains("--purge")); return 0; }
+                // Windows' “卸载” asks in the installer window itself.
+                if (args.Contains("--uninstall-ask")) { RunUi(true); return 0; }
+                if (args.Contains("--activate-pending")) { ActivatePending(true); Startup(); return 0; }
                 if (args.Contains("--install")) { Console.WriteLine(Install()); return 0; }
-                if (args.Contains("--startup")) { Startup(false); return 0; }
-                if (args.Contains("--settings") || Assembly.GetExecutingAssembly().Location.Equals(Launcher, StringComparison.OrdinalIgnoreCase)) { Startup(true); return 0; }
-                RunUi();
+                if (args.Contains("--startup")) { Startup(); return 0; }
+                // The downloaded installer, the installed launcher and Windows'
+                // “修改” all open the same window. It never opens settings.
+                RunUi(false);
                 return 0;
             } catch (Exception e) {
                 try { Deployment.Write(Path.Combine(Root, "setup-error.json"), new { message = e.Message, at = DateTime.UtcNow.ToString("o") }); } catch { }

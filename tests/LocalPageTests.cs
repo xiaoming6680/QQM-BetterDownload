@@ -53,7 +53,10 @@ namespace QqmBetterDownload {
                 check(Request(uri,"POST",prefix+"action",new string('x',4097)).Contains("400 Bad Request"),"oversized commands must be rejected");
                 check(Request(uri,"GET",prefix+"../settings.json").Contains("404 Not Found"),"server must expose no local file route");
                 check(calls==1,"rejected requests must never execute actions");
-                check(!NativeUiCompatibility.Supported(Path.GetTempPath()),"unknown GF binaries must disable the private ABI");
+                foreach (string command in new[] { "update-check", "update-open" }) check(Request(uri,"POST",prefix+"action","{\"action\":\""+command+"\"}",null,"http://"+uri.Authority).Contains("202 Accepted") && last==command+":","update button commands must reach the controller");
+                check(Request(uri,"POST",prefix+"action","{\"action\":\"intro-accept\"}",null,"http://"+uri.Authority).Contains("202 Accepted") && last=="intro-accept:","first-run notice agreement must reach the controller");
+                check(Request(uri,"POST",prefix+"action","{\"action\":\"uninstall\"}",null,"http://"+uri.Authority).Contains("202 Accepted") && last=="uninstall:","settings uninstall link must reach the controller");
+                string reason; check(ClientCompatibility.Interface(Path.GetTempPath(), out reason) == Support.Missing && reason.Length > 0,"missing GF binaries must disable the private ABI");
             }
         }
     }

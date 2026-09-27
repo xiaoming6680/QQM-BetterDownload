@@ -3,23 +3,122 @@ using System.IO;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Threading.Tasks;
+using System.Web.Script.Serialization;
 
 namespace QqmBetterDownload {
-    // No injection or account credentials. The verified local DLL only derives the
-    // machine-bound MMKV store name and key. All database access below is read-only.
-    public sealed class LocalKeys : IDisposable {
-        const string SupportedHash = "A28EBDD9EDA2D3DFBFC540578681BC71425136858E29BC07A22EAD142510187D";
-        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
-        static extern IntPtr LoadLibraryEx(string path, IntPtr file, uint flags);
+    // Derives the machine-bound MMKV store name and key with QQ Music's own
+    // CommonFunction.dll (export ordinal 12). A verified build runs in this
+    // process. Any other Tencent-signed build runs in a throwaway child process,
+    // so a changed interface can only crash or stall that child.
+    internal static class KeyInterface {
+        internal sealed class Result { internal string Store = "", Key = ""; internal bool Verified; }
+        internal const string ChildSwitch = "--derive-store";
+        // Tests route the child through their own executable and stand-in DLLs.
+        internal static string HelperSwitch = ChildSwitch;
+        internal static bool AllowUnsigned { get; set; }
+        internal static int Timeout = 15000;
+        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr LoadLibraryEx(string path, IntPtr file, uint flags);
         [DllImport("kernel32", SetLastError = true)] static extern IntPtr GetProcAddress(IntPtr module, IntPtr ordinal);
         [DllImport("kernel32")] static extern bool FreeLibrary(IntPtr module);
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        delegate void Derive([Out] byte[] seed, [Out] byte[] name);
+        [DllImport("kernel32")] static extern uint SetErrorMode(uint mode);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)] delegate void Derive(IntPtr seed, IntPtr name);
+        const int Buffer = 1024;
+        internal static Result Load(string dll) {
+            if (ClientCompatibility.KnownKeyInterface(PeImage.Read(dll).CodeHash)) return Here(dll, true);
+            string helper; using (var self = Process.GetCurrentProcess()) helper = self.MainModule.FileName;
+            return Isolated(dll, helper, HelperSwitch, Timeout);
+        }
+        internal static Result Here(string dll, bool requireKnown) {
+            if (IntPtr.Size != 4) throw new NotSupportedException("请使用 x86 构建。");
+            // Deny writes while the component is identified and mapped, so the
+            // code that runs is the code that was checked.
+            using (var file = new FileStream(dll, FileMode.Open, FileAccess.Read, FileShare.Read)) {
+                var image = PeImage.Read(file); bool known = ClientCompatibility.KnownKeyInterface(image.CodeHash);
+                if (!known && requireKnown) throw new NotSupportedException("此 QQ 音乐版本的本地接口尚未适配，下载任务会保留。");
+                if (!known && !image.HasExport(ClientCompatibility.KeyOrdinal)) throw new NotSupportedException("此版本 QQ 音乐的本地组件缺少已知接口，新格式下载会保留等待适配。");
+                if (!known && !AllowUnsigned && !Authenticode.IsTencent(dll)) throw new NotSupportedException("此版本 QQ 音乐的本地组件没有有效的腾讯签名，已停止调用；新格式下载会保留。");
+                IntPtr module = LoadLibraryEx(dll, IntPtr.Zero, 0x1100); // DLL directory + System32 only
+                if (module == IntPtr.Zero) throw new IOException("无法加载 QQ 音乐本地组件，错误 " + Marshal.GetLastWin32Error());
+                // QQ passes 33- and 68-byte buffers; larger ones cost nothing.
+                IntPtr seed = Marshal.AllocHGlobal(Buffer), name = Marshal.AllocHGlobal(Buffer);
+                try {
+                    Clear(seed); Clear(name);
+                    IntPtr address = GetProcAddress(module, (IntPtr)ClientCompatibility.KeyOrdinal);
+                    if (address == IntPtr.Zero) throw new NotSupportedException("本地组件接口缺失。");
+                    ((Derive)Marshal.GetDelegateForFunctionPointer(address, typeof(Derive)))(seed, name);
+                    return Check(Text(seed), Text(name), known);
+                } finally { Clear(seed); Clear(name); Marshal.FreeHGlobal(seed); Marshal.FreeHGlobal(name); FreeLibrary(module); }
+            }
+        }
+        static void Clear(IntPtr buffer) { Marshal.Copy(new byte[Buffer], 0, buffer, Buffer); }
+        static string Text(IntPtr buffer) {
+            var bytes = new byte[Buffer]; Marshal.Copy(buffer, bytes, 0, Buffer);
+            int length = Array.IndexOf(bytes, (byte)0);
+            string text = length < 0 ? "" : Encoding.ASCII.GetString(bytes, 0, length);
+            Array.Clear(bytes, 0, bytes.Length); return text;
+        }
+        // Every build must return the verified shape: a 32-character hex key and
+        // a plain file name for the store under %APPDATA%\Tencent\QQMusic.
+        internal static Result Check(string key, string store, bool verified) {
+            if (key == null || key.Length != 32 || !key.All(Uri.IsHexDigit)) throw new InvalidDataException("本地存储参数无效。");
+            if (store == null || store.Length < 1 || store.Length > 63 || store == "." || store == ".." || !store.All(c => c < 128 && (Char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-'))) throw new InvalidDataException("本地存储名称无效。");
+            return new Result { Key = key, Store = store, Verified = verified };
+        }
+        internal static Result Isolated(string dll, string helper, string argument, int timeout) {
+            var start = new ProcessStartInfo(helper, argument + " \"" + Path.GetFullPath(dll) + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, StandardOutputEncoding = new UTF8Encoding(false) };
+            string text; int exit;
+            using (var child = Process.Start(start)) {
+                Task<string> output = child.StandardOutput.ReadToEndAsync();
+                if (!child.WaitForExit(timeout)) {
+                    try { child.Kill(); } catch (InvalidOperationException) { } catch (Win32Exception) { }
+                    child.WaitForExit(5000);
+                    throw new IOException("QQ 音乐本地接口响应超时，新格式下载会保留并稍后重试。");
+                }
+                child.WaitForExit(); exit = child.ExitCode;
+                text = output.Wait(5000) ? output.Result : "";
+            }
+            Dictionary<string, object> reply = null;
+            try { reply = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(text); } catch (ArgumentException) { } catch (InvalidOperationException) { }
+            object store, key, error, unsupported;
+            if (exit == 0 && reply != null && reply.TryGetValue("store", out store) && reply.TryGetValue("key", out key)) return Check(key as string, store as string, false);
+            if (reply != null && reply.TryGetValue("error", out error) && error is string) {
+                if (reply.TryGetValue("unsupported", out unsupported) && true.Equals(unsupported)) throw new NotSupportedException((string)error);
+                throw new IOException((string)error);
+            }
+            // A crash means the interface changed; do not keep calling it.
+            throw new NotSupportedException("此版本 QQ 音乐的本地接口调用失败（退出码 0x" + exit.ToString("X8") + "），新格式下载会保留等待适配。");
+        }
+        // Entry point of the child process: BetterDownload.exe --derive-store DLL.
+        [HandleProcessCorruptedStateExceptions]
+        internal static int ChildMain(string dll) {
+            SetErrorMode(0x8003); // no crash, critical-error or open-file dialogs
+            var json = new JavaScriptSerializer(); string reply; int code;
+            try {
+                var result = Here(Path.GetFullPath(dll), false);
+                reply = json.Serialize(new { store = result.Store, key = result.Key }); code = 0;
+            } catch (Exception e) {
+                bool fault = e is AccessViolationException || e is SEHException;
+                reply = json.Serialize(new { error = fault ? "此版本 QQ 音乐的本地接口调用异常，新格式下载会保留等待适配。" : e.Message, unsupported = fault || e is NotSupportedException || e is InvalidDataException }); code = 3;
+            }
+            byte[] bytes = new UTF8Encoding(false).GetBytes(reply);
+            using (var output = Console.OpenStandardOutput()) output.Write(bytes, 0, bytes.Length);
+            return code;
+        }
+    }
+    // No injection or account credentials: QQ Music's component only derives
+    // the machine-bound MMKV store name and key. All database access is read-only.
+    public sealed class LocalKeys : IDisposable {
         byte[] key;
         public readonly string StorePath;
+        // False when the local interface is a Tencent-signed build that has not
+        // been verified yet; its output is then checked before it is trusted.
+        public readonly bool Verified;
         public static string FindClient() {
             foreach (var process in Process.GetProcessesByName("QQMusic")) {
                 using (process) { try { return Path.GetDirectoryName(process.MainModule.FileName); } catch { } }
@@ -44,27 +143,14 @@ namespace QqmBetterDownload {
             }
             return "";
         }
-        public LocalKeys(string client) {
+        public LocalKeys(string client, string storeFolder = null) {
             if (IntPtr.Size != 4) throw new NotSupportedException("请使用 x86 构建。");
             string dll = Path.GetFullPath(Path.Combine(client, "CommonFunction.dll"));
-            using (var stream = File.OpenRead(dll)) using (var sha = SHA256.Create()) {
-                string hash = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
-                if (hash != SupportedHash) throw new NotSupportedException("此 QQ 音乐版本的本地接口尚未适配，下载任务会保留。当前已验证 22.71 x86。");
-            }
-            IntPtr module = LoadLibraryEx(dll, IntPtr.Zero, 0x1100); // DLL directory + System32 only
-            if (module == IntPtr.Zero) throw new IOException("无法加载 QQ 音乐本地组件，错误 " + Marshal.GetLastWin32Error());
-            byte[] seed = new byte[33], name = new byte[64];
-            try {
-                IntPtr address = GetProcAddress(module, (IntPtr)12);
-                if (address == IntPtr.Zero) throw new NotSupportedException("本地组件接口缺失。");
-                ((Derive)Marshal.GetDelegateForFunctionPointer(address, typeof(Derive)))(seed, name);
-                int length = Array.IndexOf(name, (byte)0);
-                if (length < 1 || length >= 64 || Array.IndexOf(seed, (byte)0) != 32) throw new InvalidDataException("本地存储参数无效。");
-                string store = Encoding.ASCII.GetString(name, 0, length);
-                if (store != Path.GetFileName(store) || store.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || store == "." || store == "..") throw new InvalidDataException("本地存储名称无效。");
-                key = seed.Take(16).ToArray();
-                StorePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Tencent", "QQMusic", store);
-            } finally { Array.Clear(seed, 0, seed.Length); Array.Clear(name, 0, name.Length); FreeLibrary(module); }
+            if (!File.Exists(dll)) throw new NotSupportedException("未找到 QQ 音乐本地组件，新格式下载会保留等待适配；文件内带密钥的旧格式仍可转换。");
+            var derived = KeyInterface.Load(dll);
+            Verified = derived.Verified;
+            key = Encoding.ASCII.GetBytes(derived.Key.Substring(0, 16));
+            StorePath = Path.Combine(storeFolder ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Tencent", "QQMusic"), derived.Store);
         }
         public Dictionary<string, string> Read() {
             if (!File.Exists(StorePath)) return new Dictionary<string, string>(StringComparer.Ordinal);
@@ -72,7 +158,14 @@ namespace QqmBetterDownload {
             byte[] data = ReadShared(StorePath, 64 * 1024 * 1024);
             byte[] after = ReadShared(StorePath + ".crc", 4096);
             if (!before.SequenceEqual(after)) throw new IOException("下载记录正在更新，稍后重试。");
-            return Mmkv.Decode(data, before, key);
+            try { return Mmkv.Decode(data, before, key); }
+            catch (Exception e) {
+                // The store's checksum covers the ciphertext only. Records that do
+                // not parse (or decode as UTF-8) mean an unverified interface
+                // returned the wrong key.
+                if (Verified || !(e is InvalidDataException || e is ArgumentException)) throw;
+                throw new NotSupportedException("此版本 QQ 音乐的本地接口返回的密钥无法读取下载记录，新格式下载会保留等待适配。");
+            }
         }
         static byte[] ReadShared(string path, int limit) {
             using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {

@@ -8,8 +8,8 @@
 #include <wchar.h>
 #include <math.h>
 
-/* Tencent GF's x86 COM interfaces, verified against the supported binary
-   fingerprint. No code offsets, XML resources, or client code are bundled. */
+/* Tencent GF's x86 COM interfaces, verified against the tested GF.dll and
+   Common.dll code. No code offsets, XML resources, or client code are bundled. */
 static const GUID frame_id={0xa5dff81a,0xb003,0x4967,{0xa2,0x86,0x87,0xeb,0x38,0x04,0x1c,0x7c}};
 static const GUID texture_id={0x40c0a0b4,0x33e3,0x4091,{0xae,0x36,0x91,0x8f,0x9c,0x09,0xe3,0x50}};
 typedef HRESULT (__stdcall *Query)(void*,const GUID*,void**);
@@ -40,7 +40,7 @@ static BrowserLife browser_ctor,browser_destroy,browser_dtor;
 static BrowserCreate browser_create;
 static BrowserNavigate browser_navigate;
 static WCHAR assets[2048],url[2048];
-static BOOL settings_visible,card_visible,leaving,hovered;
+static BOOL settings_visible,card_visible,leaving,hovered,trusted_wrapper;
 static BOOL entry_down,suppress_entry_up,timer_on;
 static int entry_state;
 static RECT folder_hit;
@@ -78,7 +78,11 @@ static BOOL bounds(void *frame,RECT *r){
 }
 static UINT dpi(void){typedef UINT(WINAPI *GetDpi)(HWND);GetDpi get=(GetDpi)(void*)GetProcAddress(GetModuleHandleW(L"user32.dll"),"GetDpiForWindow");UINT value=get?get(host):96;return value?value:96;}
 static POINT logical(POINT p){UINT d=dpi();p.x=MulDiv(p.x,96,(int)d);p.y=MulDiv(p.y,96,(int)d);return p;}
-BOOL bd_ui_entry_hit(HWND window,POINT p){RECT r;if(window!=host||!entry)return FALSE;ScreenToClient(host,&p);p=logical(p);return bounds(entry,&r)&&PtInRect(&r,p);}
+/* The glyph's box inside entry.svg's 30x30 frame, stroke included. Hover, the
+   hand cursor and clicks react only on the icon, like QQ's own top-bar icons. */
+static const RECT entry_icon={7,5,26,24};
+static BOOL on_entry(POINT p){RECT r;if(!entry||!bounds(entry,&r))return FALSE;RECT icon={r.left+entry_icon.left,r.top+entry_icon.top,r.left+entry_icon.right,r.top+entry_icon.bottom};return PtInRect(&icon,p);}
+BOOL bd_ui_entry_hit(HWND window,POINT p){if(window!=host||!entry)return FALSE;ScreenToClient(host,&p);return on_entry(logical(p));}
 /* Drive the 16ms frame clock only while there is something to animate: a
    visible or sliding card, or an entry hover to track. When nothing moves the
    timer is stopped, so an idle QQ Music does no per-frame work on its UI thread. */
@@ -109,16 +113,43 @@ static int sender_status(HWND sender,HMODULE bridge){
        a.dwVolumeSerialNumber==b.dwVolumeSerialNumber&&a.nFileIndexHigh==b.nFileIndexHigh&&a.nFileIndexLow==b.nFileIndexLow;
     CloseHandle(expected_file);CloseHandle(actual_file);return ok?1:-28;
 }
+static BOOL readable(const void *p,SIZE_T bytes){
+    MEMORY_BASIC_INFORMATION m;
+    if(!p||VirtualQuery(p,&m,sizeof(m))!=sizeof(m)||m.State!=MEM_COMMIT||!(m.Protect&0xEE)||(m.Protect&(PAGE_GUARD|PAGE_NOACCESS)))return FALSE;
+    return (ULONG_PTR)p+bytes<=(ULONG_PTR)m.BaseAddress+m.RegionSize;
+}
+static BOOL code_in(HMODULE module,const void *p){
+    MEMORY_BASIC_INFORMATION m;HMODULE found=NULL;
+    if(!module||!p||VirtualQuery(p,&m,sizeof(m))!=sizeof(m)||m.State!=MEM_COMMIT||!(m.Protect&0xF0))return FALSE;
+    return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,(LPCWSTR)p,&found)&&found==module;
+}
+/* A rebuilt wrapper keeps its decorated exports, which encode the signatures,
+   but not necessarily its private layout. Use its browser element only when it
+   is a live object whose methods we call are code in GF.dll or the wrapper. */
+static BOOL gf_object(void *element){
+    HMODULE gf=GetModuleHandleW(L"GF.dll"),wrapper=GetModuleHandleW(L"QQMusic_GFWrapper.dll");
+    if(!readable(element,sizeof(void*)))return FALSE;
+    void **table=*(void***)element;if(!readable(table,0x228))return FALSE;
+    const int slots[]={0x00,0x170,0x214,0x224};
+    for(unsigned i=0;i<sizeof(slots)/sizeof(slots[0]);i++){void *f=table[slots[i]/4];if(!code_in(gf,f)&&!code_in(wrapper,f))return FALSE;}
+    return TRUE;
+}
+static void release_browser(void){
+    if(!browser)return;
+    browser_destroy(browser);browser_dtor(browser);HeapFree(GetProcessHeap(),0,browser);browser=NULL;
+}
+/* 4 = the page cannot be shown inside QQ; the worker opens its own window. */
+static void settings_unavailable(void){if(owner)PostMessageW(owner,callback_message,4,0);}
 static void show_settings(BOOL show){
     if(!panel)return;
     if(show&&!browser){
-        browser=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,24);if(!browser)return;browser_ctor(browser);
+        /* The tested wrapper object is 24 bytes; leave room for a larger build. */
+        browser=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,4096);if(!browser){settings_unavailable();return;}browser_ctor(browser);
         /* OSR=1 is essential: QQ's DirectComposition window cannot display a
            foreign GDI/browser child. Let GF composite its own browser surface. */
-        if(!browser_create(browser,panel,0,1,0,0,0)){
-            browser_destroy(browser);browser_dtor(browser);HeapFree(GetProcessHeap(),0,browser);browser=NULL;return;
-        }
+        if(!browser_create(browser,panel,0,1,0,0,0)){release_browser();settings_unavailable();return;}
         void *native=((void**)browser)[1];RECT padding={0};
+        if(!trusted_wrapper&&!gf_object(native)){release_browser();settings_unavailable();return;}
         ((PutRect)vt(native)[0x214/4])(native,padding);number(native,0x224,1);number(native,0x170,1);
         browser_navigate(browser,url,0,0);
     }
@@ -132,18 +163,20 @@ static void show_settings(BOOL show){
 void bd_ui_close(HWND window){
     if(host&&window!=host)return;
     if(host){KillTimer(host,BD_UI_TIMER);RemovePropW(host,L"BetterDownload.NativeUi");RemovePropW(host,L"BetterDownload.NativeOwner");RemovePropW(host,L"BetterDownload.NativeSettings");RemovePropW(host,L"BetterDownload.NativeCard");}
-    if(browser){browser_destroy(browser);browser_dtor(browser);HeapFree(GetProcessHeap(),0,browser);browser=NULL;}
+    release_browser();
     destroy_frame(&card);destroy_frame(&card_back);destroy_frame(&panel);destroy_frame(&entry);drop(root);drop(core);root=core=NULL;
-    settings_visible=card_visible=leaving=hovered=timer_on=FALSE;host=owner=NULL;owner_pid=0;assets[0]=url[0]=0;
+    settings_visible=card_visible=leaving=hovered=timer_on=trusted_wrapper=FALSE;host=owner=NULL;owner_pid=0;assets[0]=url[0]=0;
     entry_down=suppress_entry_up=FALSE;entry_state=0;
 }
 static int initialize(HWND window,HWND sender,const WCHAR *text){
-    const WCHAR *end=wcschr(text,L'\n');if(!end||end-text>=2048||wcslen(end+1)>=2048)return -3;
-    if(wcsncmp(text,L"http://127.0.0.1:",17)||!wcsstr(text,L"/settings\n"))return -3;
+    /* url \n asset folder \n 1 if the wrapper is a tested build, else 0 */
+    const WCHAR *end=wcschr(text,L'\n'),*flag=end?wcschr(end+1,L'\n'):NULL;
+    if(!end||!flag||end-text>=2048||flag-(end+1)>=2048||(flag[1]!=L'0'&&flag[1]!=L'1')||flag[2])return -3;
+    if(wcsncmp(text,L"http://127.0.0.1:",17)||end-text<9||wcsncmp(end-9,L"/settings",9))return -3;
     if((end+1)[1]!=L':'||(end+1)[2]!=L'\\')return -3;
     int failure=-4;
     bd_ui_close(host);host=window;owner=sender;GetWindowThreadProcessId(owner,&owner_pid);
-    wcsncpy(url,text,end-text);url[end-text]=0;wcscpy(assets,end+1);
+    wcsncpy(url,text,end-text);url[end-text]=0;wcsncpy(assets,end+1,flag-(end+1));assets[flag-(end+1)]=0;trusted_wrapper=flag[1]==L'1';
     HMODULE gf=GetModuleHandleW(L"GF.dll"),wrapper=GetModuleHandleW(L"QQMusic_GFWrapper.dll"),common=GetModuleHandleW(L"Common.dll");
     if(!gf||!wrapper||!common)goto fail;
     GetGfWindow get=(GetGfWindow)(void*)GetProcAddress(gf,"?GetWindowByHWnd@GFSpyFuncHelper@@YAJPAUHWND__@@PAPAUIGFPopupWin@@@Z");
@@ -188,6 +221,8 @@ LRESULT bd_ui_command(HWND window,HWND sender,const COPYDATASTRUCT *packet,HMODU
     if(command==4){if(card_visible){leaving=TRUE;animation=GetTickCount64();pump();}return 1;}
     if(command==5){bd_ui_close(window);return 1;}
     if(command==6){show_settings(TRUE);return settings_visible?1:0;}
+    /* 7 = the verified worker opens a window for the user's click on our page. */
+    if(command==7)return AllowSetForegroundWindow(owner_pid)?1:0;
     if(command==3){
         int w,h,x,y,fw,fh,duration,appear;unsigned seq;WCHAR extra;
         if(swscanf(text,L"%d,%d,%d,%d,%d,%d,%d,%d\ncard-%u.png%lc",&w,&h,&x,&y,&fw,&fh,&duration,&appear,&seq,&extra)!=9)return 0;
@@ -218,6 +253,14 @@ void bd_ui_tick(HWND window){
     margin(card,2-offset,2);WCHAR alpha[16];swprintf(alpha,16,L"%d",(int)(255*(leaving?1-eased:eased)));attribute(card,L"alpha",alpha);
     if(leaving&&t>=1){number(card,0x15c,1);card_visible=leaving=FALSE;RemovePropW(host,L"BetterDownload.NativeCard");}
 }
+/* QQ's left column: the list, and below it the bottom-left options (main menu
+   with 设置, skin, sidebar toggle). The buttons are named too in case a build
+   hosts them outside the options panel. */
+static BOOL in_sidebar(POINT p){
+    static const WCHAR *const names[]={L"GroupList",L"LeftBottomOpt",L"Button_MainMenu",L"Button_Face",L"Button_OpenLeft"};
+    for(unsigned i=0;i<sizeof(names)/sizeof(names[0]);i++){void *frame=find(root,names[i]);RECT r;BOOL hit=frame&&bounds(frame,&r)&&PtInRect(&r,p);drop(frame);if(hit)return TRUE;}
+    return FALSE;
+}
 BOOL bd_ui_message(const MSG *message){
     if(!host||!root||(message->hwnd!=host&&!IsChild(host,message->hwnd)))return FALSE;
     if(message->message==WM_KEYDOWN&&message->wParam==VK_ESCAPE&&settings_visible){show_settings(FALSE);return TRUE;}
@@ -225,18 +268,19 @@ BOOL bd_ui_message(const MSG *message){
     if(m!=WM_LBUTTONDOWN&&m!=WM_LBUTTONUP&&m!=WM_LBUTTONDBLCLK&&m!=WM_RBUTTONUP&&!nonclient)return FALSE;
     POINT p={(short)LOWORD(message->lParam),(short)HIWORD(message->lParam)};
     if(nonclient)ScreenToClient(host,&p);else MapWindowPoints(message->hwnd,host,&p,1);p=logical(p);RECT r;
-    if(bounds(entry,&r)&&PtInRect(&r,p)){
+    if(on_entry(p)){
         if(m==WM_LBUTTONDOWN||m==WM_NCLBUTTONDOWN){entry_down=TRUE;suppress_entry_up=FALSE;}
         else if(m==WM_LBUTTONDBLCLK||m==WM_NCLBUTTONDBLCLK){entry_down=TRUE;suppress_entry_up=TRUE;}
         else if(m==WM_LBUTTONUP||m==WM_NCLBUTTONUP){entry_down=FALSE;if(!suppress_entry_up)show_settings(!settings_visible);suppress_entry_up=FALSE;}
         pump();update_entry();return m!=WM_RBUTTONUP;
     }
+    /* Pressing QQ's own navigation hides the page on the way down, before a
+       menu there (bottom-left main menu, skin) can take the mouse. */
+    if(settings_visible&&(m==WM_LBUTTONDOWN||m==WM_LBUTTONUP)&&in_sidebar(p))show_settings(FALSE);
     if(m!=WM_LBUTTONUP&&m!=WM_RBUTTONUP)return FALSE;
     if(card_visible&&bounds(card,&r)&&PtInRect(&r,p)){
         if(m==WM_RBUTTONUP){leaving=TRUE;animation=GetTickCount64();return TRUE;}
         p.x-=r.left;p.y-=r.top;if(PtInRect(&folder_hit,p))PostMessageW(owner,callback_message,1,0);return TRUE;
     }
-    if(m!=WM_LBUTTONUP)return FALSE;
-    if(settings_visible){void *sidebar=find(root,L"GroupList");BOOL close=sidebar&&bounds(sidebar,&r)&&PtInRect(&r,p);drop(sidebar);if(close)show_settings(FALSE);}
     return FALSE;
 }

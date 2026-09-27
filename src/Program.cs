@@ -9,7 +9,7 @@ using System.Diagnostics;
 
 namespace QqmBetterDownload {
     public static class Program {
-        public const string Version = "0.1.3";
+        public const string Version = "0.1.4";
         public static string DataFolder { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QQM-BetterDownload"); } }
         public static string DefaultRoot() {
             string downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
@@ -41,11 +41,13 @@ namespace QqmBetterDownload {
         }
         [STAThread] public static int Main(string[] args) {
             try { Console.OutputEncoding = new UTF8Encoding(false); } catch (IOException) { }
+            // A throwaway child that calls an unverified QQ Music key interface.
+            if (args.Length == 2 && args[0] == KeyInterface.ChildSwitch) return KeyInterface.ChildMain(args[1]);
             try {
                 if (args.Contains("--agent")) return Agent.Run();
                 if (args.Contains("--stop-agent")) { Signal("Local\\QQM-BetterDownload.AgentStop"); Signal("Local\\QQM-BetterDownload.WorkerStop"); return 0; }
                 if (args.Length == 0 || args.Contains("--settings")) { OpenSettings(); return 0; }
-                if (args.Contains("--help")) { Console.WriteLine("BetterDownload " + Version + "\n--probe | --convert FILE | --scan | --watch\n--root DIR --client QQMUSIC_DIR --data STATE_DIR --cover-cache DIR\n--card-demo | --card-preview PNG | --ui-smoke PNG\n--settings: open settings inside QQ Music."); return 0; }
+                if (args.Contains("--help")) { Console.WriteLine("BetterDownload " + Version + "\n--probe | --convert FILE | --scan | --watch\n--root DIR --client QQMUSIC_DIR --data STATE_DIR --cover-cache DIR\n--card-demo | --card-preview PNG | --ui-smoke PNG [--intro]\n--settings: open settings inside QQ Music."); return 0; }
                 if (args.Contains("--card-preview")) { CardPreview.Save(Option(args, "--card-preview", "")); return 0; }
                 if (args.Contains("--readme-cards")) { CardPreview.SaveReadmeCards(Option(args, "--readme-cards", "")); return 0; }
                 if (args.Contains("--ui-smoke") || args.Contains("--plugin") || args.Contains("--card-demo")) {
@@ -67,7 +69,7 @@ namespace QqmBetterDownload {
                             using (var dpi = parent == null ? null : new ClientUi.DpiScope(window))
                             using (var form = new AppWindow(args.Contains("--ui-smoke") || args.Contains("--card-demo"), parent, clientPath, window))
                             using (var lifetime = parent == null ? null : new WorkerLifetime(() => !parent.HasExited && ClientUi.IsClientWindow(window, parent.Id), form.RequestExit, () => Environment.Exit(0))) {
-                                if (args.Contains("--ui-smoke")) form.SavePreview(Option(args, "--ui-smoke", ""));
+                                if (args.Contains("--ui-smoke")) form.SavePreview(Option(args, "--ui-smoke", ""), args.Contains("--intro"));
                                 else { if (args.Contains("--card-demo")) form.Shown += delegate { form.PreviewCard(); }; Application.Run(form); }
                             }
                         } finally { single.ReleaseMutex(); }
@@ -79,7 +81,12 @@ namespace QqmBetterDownload {
                     if (!single.WaitOne(0)) throw new IOException("程序正在运行，请先关闭桌面程序或其他命令行任务。");
                     try {
                         using (var keys = new DownloadKeys(client)) {
-                            if (args.Contains("--probe")) { Print(new { version = Version, clientFound = File.Exists(Path.Combine(client, "QQMusic.exe")), localInterfaceReady = keys.Available, storeFound = File.Exists(keys.StorePath), localKeyCount = keys.Read().Count, downloadRoot = root }); return keys.Available ? 0 : 2; }
+                            if (args.Contains("--probe")) {
+                                string uiReason; var ui = ClientCompatibility.Interface(client, out uiReason);
+                                Print(new { version = Version, clientFound = File.Exists(Path.Combine(client, "QQMusic.exe")), localInterfaceReady = keys.Available, localInterfaceVerified = keys.Verified, localInterfaceNotice = keys.Notice,
+                                    uiSupport = ui.ToString(), uiNotice = uiReason, storeFound = File.Exists(keys.StorePath), localKeyCount = keys.Read().Count, downloadRoot = root });
+                                return keys.Available ? 0 : 2;
+                            }
                             if (args.Contains("--watch")) {
                                 using (var stop = new ManualResetEvent(false)) using (var engine = new Engine(root, client, Path.Combine(data, "receipts.json"), Print)) {
                                     ConsoleCancelEventHandler handler = delegate(object s, ConsoleCancelEventArgs e) { e.Cancel = true; stop.Set(); };

@@ -7,7 +7,11 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace QqmBetterDownload {
-    public interface IDownloadMonitor : IDisposable { void ScanExisting(); }
+    public interface IDownloadMonitor : IDisposable {
+        void ScanExisting();
+        // Empty for a verified local interface; otherwise one line for the user.
+        string Notice { get; }
+    }
     // Plugin mode never watches or periodically scans the music directory. The
     // loader's successful file operations supply exact paths through this spool.
     public sealed class EventHost : IDownloadMonitor {
@@ -39,6 +43,7 @@ namespace QqmBetterDownload {
             return root;
         }
         public void ScanExisting() { manualScan = true; wake.Set(); }
+        public string Notice { get { return keys.Notice; } }
         public static void Submit(string data, string source) {
             string folder = Path.Combine(data, "events", "manual"); Directory.CreateDirectory(folder); SafePath.NoLinks(folder);
             string temp = Path.Combine(folder, Guid.NewGuid().ToString("N") + ".tmp");
@@ -48,7 +53,7 @@ namespace QqmBetterDownload {
             if (report != null) report(new WorkStatus { State = state, Message = message, Source = source, Output = output, Percent = percent, Id = id, Track = track, Warning = warning });
         }
         void Run() {
-            Emit("watching", keys.Available ? "已连接 QQ 音乐，等待下载完成事件。" : "当前客户端本地接口尚未适配；旧格式可处理，新版下载会保留任务等待适配。", "", "", 0);
+            Emit("watching", keys.Available ? "已连接 QQ 音乐，等待下载完成事件。" : keys.UnavailableReason, "", "", 0);
             while (!cancel.IsCancellationRequested) {
                 try {
                     if (manualScan) {

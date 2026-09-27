@@ -37,7 +37,9 @@ try {
 } finally { $stream.Dispose() }
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'
 $sources = @(Get-ChildItem -LiteralPath (Join-Path $projectRoot 'setup') -Filter '*.cs' | ForEach-Object FullName)
-$refs = @('/reference:System.Core.dll','/reference:System.Web.Extensions.dll','/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll','/reference:System.IO.Compression.dll','/reference:Microsoft.CSharp.dll')
+# The installer shares the app's client check so both report the same adaptation state.
+$sources += Join-Path $projectRoot 'src\ClientCompatibility.cs'
+$refs = @('/reference:System.Core.dll','/reference:System.Web.Extensions.dll','/reference:System.Windows.Forms.dll','/reference:System.Drawing.dll','/reference:System.IO.Compression.dll','/reference:Microsoft.CSharp.dll','/reference:System.Management.dll')
 & $compiler /nologo /utf8output /optimize+ /platform:x86 /target:winexe ('/win32icon:' + (Join-Path $projectRoot 'src\BetterDownload.ico')) ('/out:' + (Join-Path $buildRoot 'BetterDownload-Setup.exe')) ('/resource:' + $archive + ',payload.zip') ('/resource:' + $manifest + ',payload.json') ('/resource:' + (Join-Path $projectRoot 'src\BetterDownload.ico') + ',brand.ico') @refs @sources
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 Write-Output 'Installer built: build\BetterDownload-Setup.exe'

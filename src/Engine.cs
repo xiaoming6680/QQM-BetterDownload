@@ -50,13 +50,14 @@ namespace QqmBetterDownload {
             wake.Set();
         }
         public void ScanExisting() { lock (gate) scan = true; wake.Set(); }
+        public string Notice { get { return localKeys.Notice; } }
         void Emit(string state, string message, string source, string output, int percent, string id = "", TrackInfo track = null, string warning = "") {
             int count; lock (gate) count = pending.Count;
             if (report != null) report(new WorkStatus { State = state, Message = message, Source = source, Output = output, Percent = percent, Pending = count, Id = id, Track = track, Warning = warning });
         }
         void Remove(string path, PendingFile item) { lock (gate) { PendingFile now; if (pending.TryGetValue(path, out now) && Object.ReferenceEquals(item, now)) pending.Remove(path); } }
         void Run() {
-            Emit("watching", localKeys.Available ? "已启用，等待新下载。" : "当前客户端本地接口尚未适配；可处理文件内含密钥的旧格式，新版下载会等待适配。", "", "", 0);
+            Emit("watching", localKeys.Available ? "已启用，等待新下载。" : localKeys.UnavailableReason, "", "", 0);
             while (!cancel.IsCancellationRequested) {
                 try {
                     bool doScan; lock (gate) { doScan = scan; scan = false; }

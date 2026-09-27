@@ -12,4 +12,11 @@ if ($Tests) {
     if ($LASTEXITCODE -ne 0) { throw 'Test bridge compilation failed.' }
     & $zig cc -target x86-windows-gnu -municode '-Wl,--subsystem,windows' -O2 -Wall -Wextra -Werror (Join-Path $projectRoot 'tests\BridgeHost.c') -o (Join-Path $buildRoot 'BridgeHost.exe') -luser32 -lshell32
     if ($LASTEXITCODE -ne 0) { throw 'Test host compilation failed.' }
+    # Unsigned stand-ins for QQ Music's key interface: valid, malformed, crashing, stalled.
+    foreach ($variant in @(@('FakeKeys', ''), @('FakeKeysInvalid', '-DFAKE_INVALID'), @('FakeKeysCrash', '-DFAKE_CRASH'), @('FakeKeysHang', '-DFAKE_HANG'))) {
+        $arguments = @('cc', '-target', 'x86-windows-gnu', '-shared', '-O2', '-Wall', '-Wextra', '-Werror')
+        if ($variant[1]) { $arguments += $variant[1] }
+        & $zig @arguments (Join-Path $projectRoot 'tests\FakeKeys.c') (Join-Path $projectRoot 'tests\FakeKeys.def') -o (Join-Path $buildRoot ($variant[0] + '.dll'))
+        if ($LASTEXITCODE -ne 0) { throw ('Test key interface compilation failed: ' + $variant[0]) }
+    }
 }

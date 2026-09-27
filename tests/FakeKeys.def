@@ -1,0 +1,3 @@
+LIBRARY FakeKeys
+EXPORTS
+    GenerateKey@8 @12 NONAME

@@ -10,7 +10,7 @@ foreach ($file in $files) {
     $full = Join-Path $projectRoot $file
     if (!(Test-Path -LiteralPath $full -PathType Leaf)) { continue }
     $allowed = $file -in $rootFiles -or $file -match '^(src|setup|tests)/[^/]+\.cs$' -or
-        $file -in @('src/app.manifest','src/BetterDownload.ico','src/ui/settings.html','src/ui/entry.svg','native/bridge.c','native/bridge.def','native/gf_ui.c','native/gf_ui.h','tests/BridgeHost.c','tests/fixtures/tone.flac','tests/fixtures/README.md','promo/cover.html') -or
+        $file -in @('src/app.manifest','src/BetterDownload.ico','src/ui/settings.html','src/ui/entry.svg','native/bridge.c','native/bridge.def','native/gf_ui.c','native/gf_ui.h','tests/BridgeHost.c','tests/FakeKeys.c','tests/FakeKeys.def','tests/fixtures/tone.flac','tests/fixtures/README.md','promo/cover.html') -or
         $file -match '^scripts/[^/]+\.(ps1|cjs)$' -or $file -match '^licenses/[^/]+\.txt$' -or
         $file -match '^docs/[A-Z-]+\.md$' -or $file -match '^docs/(images/)?[a-z-]+\.(png|jpg)$' -or
         $file -match '^\.github/workflows/[^/]+\.ya?ml$'

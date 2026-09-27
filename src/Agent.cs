@@ -43,6 +43,7 @@ namespace QqmBetterDownload {
         DateTime nextWorker, lastAttach;
         int failures;
         string lastState;
+        bool ended;
         public Agent() {
             stop.Reset();
             string dll = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BetterDownloadBridge.dll"); SafePath.NoLinks(dll);
@@ -68,11 +69,10 @@ namespace QqmBetterDownload {
                             string exe = process.MainModule.FileName;
                             if (!Path.GetFileName(exe).Equals("QQMusic.exe", StringComparison.OrdinalIgnoreCase)) continue;
                             client = process; keep = true; window = ClientUi.MainWindow(process, IntPtr.Zero);
-                            // The worker checks exact GF fingerprints before
+                            // The worker checks the GF component code before
                             // creating native controls. The bridge can still
                             // observe downloads when a new UI needs adaptation.
-                            var version = FileVersionInfo.GetVersionInfo(exe);
-                            hook = NativeBridge.Attach(library, window, version.FileMajorPart == 22); lastAttach = DateTime.UtcNow;
+                            hook = NativeBridge.Attach(library, window, true); lastAttach = DateTime.UtcNow;
                             nextWorker = DateTime.MinValue; failures = 0; break;
                         } finally { if (!keep) process.Dispose(); }
                     }
@@ -95,17 +95,17 @@ namespace QqmBetterDownload {
                     if (hook != IntPtr.Zero) NativeBridge.UnhookWindowsHookEx(hook);
                     hook = IntPtr.Zero; window = currentWindow; lastState = null;
                     if (window == IntPtr.Zero) { State("waiting-window", "等待 QQ 音乐主窗口打开。"); return; }
-                    hook = NativeBridge.Attach(library, window, FileVersionInfo.GetVersionInfo(client.MainModule.FileName).FileMajorPart == 22); lastAttach = DateTime.UtcNow;
+                    hook = NativeBridge.Attach(library, window, true); lastAttach = DateTime.UtcNow;
                 }
                 if (window == IntPtr.Zero) { State("waiting-window", "等待 QQ 音乐主窗口打开。"); return; }
                 if (NativeBridge.GetProp(window, "BetterDownload.Bridge") == IntPtr.Zero) {
                     // Also retries after the UI thread was busy during startup.
-                    NativeBridge.PostMessage(window, NativeBridge.AttachMessage, IntPtr.Zero, FileVersionInfo.GetVersionInfo(client.MainModule.FileName).FileMajorPart == 22 ? (IntPtr)1 : IntPtr.Zero);
+                    NativeBridge.PostMessage(window, NativeBridge.AttachMessage, IntPtr.Zero, (IntPtr)1);
                     State("connecting", "正在连接 QQ 音乐…");
                 } else {
                     int imports = NativeBridge.GetProp(window, "BetterDownload.Imports").ToInt32();
                     bool nativeReady = NativeBridge.GetProp(window,"BetterDownload.NativeUi") != IntPtr.Zero;
-                    State(imports > 0 && nativeReady ? "connected" : "partial", imports > 0 ? nativeReady ? "已连接 QQ 音乐原生界面，自动接收下载完成事件。" : "下载事件已接入；原生界面暂未就绪，可在托盘查看适配情况。" : "这个版本的下载事件接口尚未识别。");
+                    State(imports > 0 && nativeReady ? "connected" : "partial", imports > 0 ? nativeReady ? "已连接 QQ 音乐原生界面，自动接收下载完成事件。" : "下载事件已接入；QQ 内界面未就绪或未适配此版本，设置可从 QQ 音乐窗口菜单（Alt+空格）打开。" : "这个版本的下载事件接口尚未识别。");
                     if (!WorkerSession.Alive(client)) State("starting", "入口已连接，正在启动自动转换…");
                     if (NativeBridge.GetProp(window, "BetterDownload.QueueOverflow") != IntPtr.Zero) State("overflow", "下载事件队列已满，请在设置中处理已有下载。");
                 }
@@ -127,7 +127,7 @@ namespace QqmBetterDownload {
             if (worker != null && worker.HasExited) { worker.Dispose(); worker = null; }
         }
         protected override void ExitThreadCore() {
-            timer.Stop(); timer.Dispose(); Disconnect();
+            ended = true; timer.Stop(); timer.Dispose(); Disconnect();
             Program.Signal("Local\\QQM-BetterDownload.WorkerStop"); State("stopped", "自动接入已停止。");
             if (worker != null) { worker.Dispose(); worker = null; }
             NativeBridge.FreeLibrary(library); stop.Dispose(); settings.Dispose(); base.ExitThreadCore();
@@ -136,7 +136,11 @@ namespace QqmBetterDownload {
             using (var mutex = new Mutex(false, "Local\\QQM-BetterDownload.Agent")) {
                 bool locked; try { locked = mutex.WaitOne(0); } catch (AbandonedMutexException) { locked = true; }
                 if (!locked) return 0;
-                try { Application.Run(new Agent()); } finally { mutex.ReleaseMutex(); }
+                // The first tick runs in the constructor, before the message loop
+                // exists. An exit requested there (to hand over to a pending
+                // version) would be lost, leaving a process that holds this mutex
+                // but never ticks again.
+                try { var agent = new Agent(); if (!agent.ended) Application.Run(agent); } finally { mutex.ReleaseMutex(); }
             }
             return 0;
         }
