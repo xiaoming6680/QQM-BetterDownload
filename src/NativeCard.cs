@@ -70,11 +70,14 @@ namespace QqmBetterDownload {
             var folder = view.FolderBounds;
             int x = folder.IsEmpty ? 0 : (int)folder.X + 20, y = folder.IsEmpty ? 0 : (int)folder.Y + 16;
             int w = folder.IsEmpty ? 0 : (int)folder.Width, h = folder.IsEmpty ? 0 : (int)folder.Height;
-            ui.ShowCard(String.Format(CultureInfo.InvariantCulture,"{0},{1},{2},{3},{4},{5},{6},{7}\ncard-{8}.png",(int)Math.Ceiling(canvas.ActualWidth),(int)Math.Ceiling(canvas.ActualHeight),x,y,w,h,stay,appear ? 1 : 0,sequence));
+            // Flag 1 shows the card; flag 2 holds its countdown while a song converts,
+            // flag 4 briefly while the next song of the round is on its way.
+            int flags = (appear ? 1 : 0) | (latest.State == "converting" ? 2 : latest.Pending > 0 ? 4 : 0);
+            ui.ShowCard(String.Format(CultureInfo.InvariantCulture,"{0},{1},{2},{3},{4},{5},{6},{7}\ncard-{8}.png",(int)Math.Ceiling(canvas.ActualWidth),(int)Math.Ceiling(canvas.ActualHeight),x,y,w,h,stay,flags,sequence));
             frames.Enqueue(file);
             while (frames.Count > 8) { string old = frames.Dequeue(); try { File.Delete(old); } catch (IOException) { } }
         }
-        internal void OpenFolder() { if (latest != null && !String.IsNullOrEmpty(latest.Output) && openFolder != null) openFolder(Path.GetDirectoryName(latest.Output)); }
+        internal void OpenFolder() { if (latest != null && !String.IsNullOrEmpty(latest.Output) && openFolder != null) openFolder(String.IsNullOrEmpty(latest.Folder) ? Path.GetDirectoryName(latest.Output) : latest.Folder); }
         public void Dismiss() { session.Hide(); ui.DismissCard(); }
         public void Dispose() { if (disposed) return; Dismiss(); disposed = true; }
     }

@@ -56,6 +56,7 @@ namespace QqmBetterDownload {
                 foreach (string command in new[] { "update-check", "update-open" }) check(Request(uri,"POST",prefix+"action","{\"action\":\""+command+"\"}",null,"http://"+uri.Authority).Contains("202 Accepted") && last==command+":","update button commands must reach the controller");
                 check(Request(uri,"POST",prefix+"action","{\"action\":\"intro-accept\"}",null,"http://"+uri.Authority).Contains("202 Accepted") && last=="intro-accept:","first-run notice agreement must reach the controller");
                 check(Request(uri,"POST",prefix+"action","{\"action\":\"uninstall\"}",null,"http://"+uri.Authority).Contains("202 Accepted") && last=="uninstall:","settings uninstall link must reach the controller");
+                foreach (string command in new[] { "lyrics", "lyrics-file" }) check(Request(uri,"POST",prefix+"action","{\"action\":\""+command+"\"}",null,"http://"+uri.Authority).Contains("202 Accepted") && last==command+":","lyrics switches must reach the controller: "+command);
                 string reason; check(ClientCompatibility.Interface(Path.GetTempPath(), out reason) == Support.Missing && reason.Length > 0,"missing GF binaries must disable the private ABI");
             }
         }

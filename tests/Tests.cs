@@ -69,12 +69,27 @@ namespace QqmBetterDownload {
                 card.Receive(Status("native", "converting", 80)); Check(!card.IsVisible, "native progress resurrected dismissed card");
                 card.Receive(Status("native", "success", 100)); Check(card.IsVisible, "native completion did not appear");
                 card.Configure("off", true, 4000); Check(!card.IsVisible, "notification setting did not hide card");
-                card.Configure("all", false, 2000); card.Receive(Status("timer", "converting", 64));
+                card.Configure("all", false, 2000); card.Receive(Status("timer", "success", 100));
                 card.Left = -10000; // own test window only; keep the real pointer outside
                 card.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = System.Windows.Input.Mouse.MouseEnterEvent });
                 Pump(2200); Check(card.IsVisible, "hover must pause automatic dismissal");
                 card.RaiseEvent(new System.Windows.Input.MouseEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0) { RoutedEvent = System.Windows.Input.Mouse.MouseLeaveEvent });
                 Pump(2300); Check(!card.IsVisible, "notification did not dismiss after leaving hover");
+                // A conversion longer than the stay keeps its card; the countdown starts at the end.
+                card.Receive(Status("long", "converting", 10)); card.Left = -10000;
+                Pump(2300); Check(card.IsVisible, "running conversion must keep its card");
+                card.Receive(Status("long", "converting", 90)); card.Receive(Status("long", "success", 100)); card.Left = -10000;
+                Pump(1200); Check(card.IsVisible, "completion must restart the stay");
+                Pump(1100); Check(!card.IsVisible, "completion must dismiss after the stay");
+                ProgressCard.BusyGrace = TimeSpan.FromMilliseconds(300);
+                try { card.Receive(Status("silent", "converting", 10)); card.Left = -10000; Pump(2600); Check(!card.IsVisible, "a silent worker must not pin the card"); }
+                finally { ProgressCard.BusyGrace = TimeSpan.FromMinutes(1); }
+                // Between songs of a round the card waits for the next one instead of counting down.
+                var first = Status("q1", "converting", 10); first.Round = "batch"; first.Pending = 2; card.Receive(first); card.Left = -10000;
+                var middle = Status("q1", "success", 100); middle.Round = "batch"; middle.Pending = 1; card.Receive(middle);
+                Pump(2300); Check(card.IsVisible, "a round's card waits for its next song");
+                var last = Status("q2", "success", 100); last.Round = "batch"; last.Pending = 0; card.Receive(last); card.Left = -10000;
+                Pump(2300); Check(!card.IsVisible, "the round's card leaves after its last song");
             }
         }
         static void Pump(int ms) { var clock = System.Diagnostics.Stopwatch.StartNew(); while (clock.ElapsedMilliseconds < ms) { Forms.Application.DoEvents(); Thread.Sleep(10); } }
@@ -133,13 +148,14 @@ namespace QqmBetterDownload {
                 if (args.Length == 2 && args[0] == "--real-client") { CompatibilityTests.RealClient(Check, args[1]); Console.WriteLine("PASS " + passed + " real-client compatibility assertions; no keys or names printed."); return 0; }
                 string folder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "test-runs", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
                 if (args.Length == 1 && args[0] == "--local-page") { LocalPageTests.Run(Check); Console.WriteLine("PASS " + passed + " local-page assertions."); return 0; }
+                if (args.Length == 1 && args[0] == "--formats") { Metadata(folder); LegacyTests.Run(Check, folder); FormatTests.Run(Check, folder); RoundTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " format and round assertions; synthetic fixtures only."); return 0; }
                 if (args.Length == 1 && args[0] == "--intro") { PreviewPageTests.Run(Check); IntroPageTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " first-run notice assertions."); return 0; }
                 if (args.Length == 1 && args[0] == "--update") { UpdateTests.Run(Check); Console.WriteLine("PASS " + passed + " update-check assertions; offline."); return 0; }
                 if (args.Length == 1 && args[0] == "--compat") { CompatibilityTests.Run(Check, folder); CompatibilityTests.Fallback(Check, folder); Console.WriteLine("PASS " + passed + " compatibility assertions."); return 0; }
                 if (args.Length == 1 && args[0] == "--shutdown") { ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " shutdown assertions."); return 0; }
                 if (args.Length == 1 && args[0] == "--lifecycle") { LifecycleTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " lifecycle assertions."); return 0; }
                 if (args.Length == 1 && args[0] == "--bridge") { BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder); Console.WriteLine("PASS " + passed + " bridge and preview shutdown assertions."); return 0; }
-                Notifications(); Metadata(folder); LegacyTests.Run(Check, folder); AutomaticTests.Run(Check, folder); LocalPageTests.Run(Check); UpdateTests.Run(Check); CompatibilityTests.Run(Check, folder); CompatibilityTests.Fallback(Check, folder); Visuals(folder); PreviewPageTests.Run(Check); IntroPageTests.Run(Check, folder); SettingsButtonTests.Run(Check); LifecycleTests.Run(Check, folder); BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder);
+                Notifications(); Metadata(folder); LegacyTests.Run(Check, folder); FormatTests.Run(Check, folder); RoundTests.Run(Check, folder); AutomaticTests.Run(Check, folder); LocalPageTests.Run(Check); UpdateTests.Run(Check); CompatibilityTests.Run(Check, folder); CompatibilityTests.Fallback(Check, folder); Visuals(folder); PreviewPageTests.Run(Check); IntroPageTests.Run(Check, folder); SettingsButtonTests.Run(Check); LifecycleTests.Run(Check, folder); BridgeTests.Run(Check, folder); ShutdownTests.Run(Check, folder);
                 Console.WriteLine("PASS " + passed + " assertions; synthetic fixtures only."); return 0;
             } catch (Exception e) { Console.Error.WriteLine(e); return 1; }
         }

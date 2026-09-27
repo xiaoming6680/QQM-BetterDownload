@@ -10,6 +10,12 @@ namespace QqmBetterDownload {
         public long AudioLength;
         public string Resource = "", EmbeddedKey = "";
     }
+    public sealed class AudioCheck {
+        // MP4 only: a digest of the sample data, which retagging must not change.
+        public string Digest = "";
+        // Bytes after a complete FLAC stream that form QQ Music's trailer.
+        public long Trailer;
+    }
     public static class AudioFile {
         static readonly HashSet<string> Extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
             ".mflac", ".mflac0", ".mflach", ".mgg", ".mgg0", ".mgg1", ".mggl", ".mmp4"
@@ -46,16 +52,22 @@ namespace QqmBetterDownload {
         public static string Format(byte[] head) {
             if (head.Length >= 4 && Encoding.ASCII.GetString(head, 0, 4) == "fLaC") return "flac";
             if (head.Length >= 4 && Encoding.ASCII.GetString(head, 0, 4) == "OggS") return "ogg";
-            if (head.Length >= 8 && Encoding.ASCII.GetString(head, 4, 4) == "ftyp") throw new NotSupportedException("已识别 M4A；当前原型暂未实现其完整性校验，因此保留源文件并跳过。");
+            if (head.Length >= 8 && Encoding.ASCII.GetString(head, 4, 4) == "ftyp") return "mp4";
             throw new InvalidDataException("解密后的音频头无效，密钥可能不匹配。");
         }
-        public static void Validate(Stream file, string format, CancellationToken cancel) {
+        public static AudioCheck Validate(Stream file, string format, CancellationToken cancel) {
             file.Position = 0;
-            if (format == "flac") ValidateFlac(file, cancel);
-            else if (format == "ogg") ValidateOgg(file, cancel);
-            else throw new NotSupportedException("尚未支持此音频格式。");
+            if (format == "flac") return new AudioCheck { Trailer = ValidateFlac(file, cancel) };
+            if (format == "ogg") { ValidateOgg(file, cancel); return new AudioCheck(); }
+            if (format == "mp4") return new AudioCheck { Digest = Mp4Audio.Validate(file, cancel) };
+            throw new NotSupportedException("尚未支持此音频格式。");
         }
         static readonly ushort[] FlacTable = FlacCrcTable();
+        internal static ushort Crc16(byte[] b, int offset, int count) {
+            ushort crc = 0;
+            for (int i = offset; i < offset + count; i++) crc = (ushort)((crc << 8) ^ FlacTable[((crc >> 8) ^ b[i]) & 255]);
+            return crc;
+        }
         static ushort[] FlacCrcTable() {
             var table = new ushort[256];
             for (int i = 0; i < 256; i++) { int c = i << 8; for (int j = 0; j < 8; j++) c = (c & 0x8000) != 0 ? (c << 1) ^ 0x8005 : c << 1; table[i] = (ushort)c; }
@@ -94,7 +106,10 @@ namespace QqmBetterDownload {
         }
         // Validate every frame CRC16 and the STREAMINFO sample count. This catches
         // unfinished/preallocated downloads even if they already have a footer.
-        static void ValidateFlac(Stream f, CancellationToken cancel) {
+        // QQ Music's SQ FLAC, unencrypted downloads included, ends with a short
+        // trailer after the last frame: F0 00 FF 0F … 0E 55 FF F0. Only that
+        // pattern after a complete stream is accepted; its length is returned.
+        static long ValidateFlac(Stream f, CancellationToken cancel) {
             if (Encoding.ASCII.GetString(Binary.Read(f, 4)) != "fLaC") throw new InvalidDataException("FLAC 头部无效。");
             bool last = false, first = true; long totalSamples = 0; int blocks = 0;
             while (!last) {
@@ -107,13 +122,14 @@ namespace QqmBetterDownload {
             if (totalSamples == 0) throw new InvalidDataException("FLAC 未提供样本总数，无法确认下载完整。");
             Frame current = ReadFrame(f);
             if (current == null || current.Number != 0) throw new InvalidDataException("FLAC 首帧无效。");
-            long samples = 0, frames = 0, frameBytes = 0, end = f.Length, position = f.Position; ushort crc = 0;
+            long samples = 0, frames = 0, frameBytes = 0, end = f.Length, position = f.Position, trailer = 0; ushort crc = 0;
             while (position < end) {
                 int value = f.ReadByte(); if (value < 0) throw new EndOfStreamException(); position++;
                 crc = (ushort)((crc << 8) ^ FlacTable[((crc >> 8) ^ value) & 255]); frameBytes++;
                 if ((position & 0x3ffff) == 0) cancel.ThrowIfCancellationRequested();
                 if (crc != 0 || frameBytes < 8) continue;
                 if (position == end) { samples += current.Samples; frames++; break; }
+                if (samples + current.Samples == totalSamples && end - position <= 256 && ClientTrailer(f, position, end)) { samples += current.Samples; frames++; trailer = end - position; break; }
                 // A zero CRC alone isn't a frame boundary: require a valid next
                 // header and its expected frame/sample number as well.
                 int a = f.ReadByte(), b = f.ReadByte(); f.Position = position;
@@ -123,6 +139,13 @@ namespace QqmBetterDownload {
                 samples += current.Samples; frames++; current = next; frameBytes = 0;
             }
             if (crc != 0 || frames == 0 || samples != totalSamples) throw new InvalidDataException("FLAC 帧校验或样本总数不符，文件可能未完成或已损坏。");
+            return trailer;
+        }
+        static readonly byte[] TrailerHead = { 0xf0, 0x00, 0xff, 0x0f }, TrailerTail = { 0x0e, 0x55, 0xff, 0xf0 };
+        static bool ClientTrailer(Stream f, long position, long end) {
+            if (end - position < 8) return false;
+            byte[] tail = Binary.Read(f, (int)(end - position)); f.Position = position;
+            return tail.Take(4).SequenceEqual(TrailerHead) && tail.Skip(tail.Length - 4).SequenceEqual(TrailerTail);
         }
         sealed class OggStream { public uint Sequence; public bool Ended; public bool Continuation; }
         static void ValidateOgg(Stream f, CancellationToken cancel) {

@@ -45,7 +45,7 @@ static BOOL entry_down,suppress_entry_up,timer_on;
 static int entry_state;
 static RECT folder_hit;
 static int card_width,card_height,stay;
-static ULONGLONG deadline,animation;
+static ULONGLONG deadline,animation,busy_until;
 static UINT callback_message;
 static void **vt(void *p){return *(void***)p;}
 static void drop(void *p){if(p)((Release)vt(p)[2])(p);}
@@ -165,7 +165,7 @@ void bd_ui_close(HWND window){
     if(host){KillTimer(host,BD_UI_TIMER);RemovePropW(host,L"BetterDownload.NativeUi");RemovePropW(host,L"BetterDownload.NativeOwner");RemovePropW(host,L"BetterDownload.NativeSettings");RemovePropW(host,L"BetterDownload.NativeCard");}
     release_browser();
     destroy_frame(&card);destroy_frame(&card_back);destroy_frame(&panel);destroy_frame(&entry);drop(root);drop(core);root=core=NULL;
-    settings_visible=card_visible=leaving=hovered=timer_on=trusted_wrapper=FALSE;host=owner=NULL;owner_pid=0;assets[0]=url[0]=0;
+    settings_visible=card_visible=leaving=hovered=timer_on=trusted_wrapper=FALSE;host=owner=NULL;owner_pid=0;assets[0]=url[0]=0;busy_until=0;
     entry_down=suppress_entry_up=FALSE;entry_state=0;
 }
 static int initialize(HWND window,HWND sender,const WCHAR *text){
@@ -224,15 +224,21 @@ LRESULT bd_ui_command(HWND window,HWND sender,const COPYDATASTRUCT *packet,HMODU
     /* 7 = the verified worker opens a window for the user's click on our page. */
     if(command==7)return AllowSetForegroundWindow(owner_pid)?1:0;
     if(command==3){
-        int w,h,x,y,fw,fh,duration,appear;unsigned seq;WCHAR extra;
-        if(swscanf(text,L"%d,%d,%d,%d,%d,%d,%d,%d\ncard-%u.png%lc",&w,&h,&x,&y,&fw,&fh,&duration,&appear,&seq,&extra)!=9)return 0;
-        if(w<100||w>500||h<30||h>500||x<0||y<0||fw<0||fh<0||x+fw>w||y+fh>h||(duration!=2000&&duration!=4000&&duration!=6000))return 0;
+        int w,h,x,y,fw,fh,duration,flags;unsigned seq;WCHAR extra;
+        if(swscanf(text,L"%d,%d,%d,%d,%d,%d,%d,%d\ncard-%u.png%lc",&w,&h,&x,&y,&fw,&fh,&duration,&flags,&seq,&extra)!=9)return 0;
+        if(w<100||w>500||h<30||h>500||x<0||y<0||fw<0||fh<0||x+fw>w||y+fh>h||(duration!=2000&&duration!=4000&&duration!=6000)||flags<0||flags>7)return 0;
         /* Prepare the next size and texture while hidden. Reusing the visible
            frame lets GF briefly stretch the old texture during a style swap. */
         WCHAR file[64];swprintf(file,64,L"card-%u.png",seq);size(card_back,w,h);if(!picture(card_back,file))return 0;
         void *previous=card;card=card_back;card_back=previous;number(card_back,0x15c,1);
         card_width=w;card_height=h;folder_hit=(RECT){x,y,x+fw,y+fh};stay=duration;
-        if(appear){if(!card_visible||leaving)animation=GetTickCount64();leaving=FALSE;card_visible=TRUE;deadline=GetTickCount64()+stay;number(card,0x15c,0);SetPropW(host,L"BetterDownload.NativeCard",(HANDLE)1);}
+        /* Flag 1 shows the card; flag 2 marks a conversion still running and
+           flag 4 a round whose next song is on its way. The countdown waits for
+           the final frame, or resumes once the worker has been silent for a
+           minute (ten seconds between songs). Neither reopens a card the user
+           dismissed. */
+        ULONGLONG now=GetTickCount64();busy_until=(flags&2)?now+60000:(flags&4)?now+10000:0;
+        if(flags&1){if(!card_visible||leaving)animation=now;leaving=FALSE;card_visible=TRUE;deadline=now+stay;number(card,0x15c,0);SetPropW(host,L"BetterDownload.NativeCard",(HANDLE)1);}
         if(card_visible){pump();bd_ui_tick(host);number(card,0x15c,!card_visible);}return 1;
     }
     return 0;
@@ -247,6 +253,7 @@ void bd_ui_tick(HWND window){
     ULONGLONG now=GetTickCount64();RECT rect;POINT p;BOOL over=FALSE;
     if(GetCursorPos(&p)){HWND under=WindowFromPoint(p);if(under==host||IsChild(host,under)){ScreenToClient(host,&p);p=logical(p);over=bounds(card,&rect)&&PtInRect(&rect,p);}}
     if(over)deadline=now+stay;else if(hovered)deadline=now+stay;hovered=over;
+    if(now<busy_until)deadline=now+stay;
     if(!leaving&&now>=deadline){leaving=TRUE;animation=now;}
     double t=(double)(now-animation)/320.0;if(t>1)t=1;
     double eased=1-pow(1-t,3);int offset=(int)((leaving?eased:1-eased)*(leaving?card_width+24:24));

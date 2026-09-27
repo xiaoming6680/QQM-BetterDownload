@@ -17,6 +17,9 @@ namespace QqmBetterDownload {
         public bool Enabled = true;
         public string Notify = "all", CardStyle = "standard";
         public int CardStay = 4000;
+        // Lyrics QQ Music saved beside the download: write them into the output,
+        // and optionally keep a copy of the .lrc beside it.
+        public bool Lyrics = true, LyricsFile;
         // The first-run notice version the user agreed to; 0 until they do.
         public int IntroAccepted;
     }
@@ -290,10 +293,14 @@ namespace QqmBetterDownload {
             else if (action == "notify" && (value == "all" || value == "errors" || value == "off")) settings.Notify = value;
             else if (action == "style" && (value == "standard" || value == "compact")) settings.CardStyle = value;
             else if (action == "stay" && (value == "2000" || value == "4000" || value == "6000")) settings.CardStay = Int32.Parse(value);
+            else if (action == "lyrics") settings.Lyrics = !settings.Lyrics;
+            else if (action == "lyrics-file") settings.LyricsFile = !settings.LyricsFile;
             else return;
-            ConfigureCard(); Save(); Publish();
+            ConfigureCard(); ConfigureLyrics(); Save(); Publish();
         }
         void ConfigureCard() { card.Configure(settings.Notify, settings.CardStyle == "compact", settings.CardStay); }
+        // The .lrc copy is a sub-option of writing lyrics, as in the NetEase version.
+        void ConfigureLyrics() { if (engine != null) engine.Configure(settings.Lyrics, settings.Lyrics && settings.LyricsFile); }
         // Settings offer uninstalling, but the installer owns it: its window asks
         // for confirmation (the same page Windows' “卸载” opens) and can delete
         // the data too. Its Stop() then ends this worker and the QQ entry.
@@ -334,7 +341,7 @@ namespace QqmBetterDownload {
             try {
                 Stop(); problem = ""; int stamp = generation;
                 engine = new EventHost(settings.Client, settings.Root, Program.DataFolder, status => Receive(status, stamp), settings.CoverCache, paths);
-                Save(); Publish();
+                ConfigureLyrics(); Save(); Publish();
             } catch (Exception e) { problem = e.Message; Publish(); card.Receive(new WorkStatus { Id = "startup-" + generation, State = "error", Message = e.Message }); }
         }
         void Stop() { generation++; card.Dismiss(); if (engine != null) { engine.Dispose(); engine = null; } }
@@ -362,7 +369,7 @@ namespace QqmBetterDownload {
             var roots = preview ? new[] { settings.Root } : paths.Roots;
             string message = !settings.Enabled ? "已关闭" : latest == null || latest.State == "watching" || latest.State == "success" || latest.State == "skipped" || latest.State == "scan-complete" ? "已启用 · 下载完成后自动转换" : latest.Message;
             string data = json.Serialize(new {
-                version = Program.Version, openSequence = openSequence, visible = panelVisible, enabled = settings.Enabled, notify = settings.Notify, style = settings.CardStyle, stay = settings.CardStay,
+                version = Program.Version, openSequence = openSequence, visible = panelVisible, enabled = settings.Enabled, notify = settings.Notify, style = settings.CardStyle, stay = settings.CardStay, lyrics = settings.Lyrics, lyricsFile = settings.LyricsFile,
                 intro = IntroPending, message = message, state = latest == null ? "" : latest.State,
                 count = completed + failed == 0 ? "" : "本次完成 " + completed + " 首" + (failed > 0 ? " · " + failed + " 首待处理" : ""),
                 error = problem.Length > 0 ? problem : latest != null && latest.State == "error" ? latest.Message : "",

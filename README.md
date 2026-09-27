@@ -8,163 +8,103 @@
 
 **下载的 VIP 歌曲，自动变成在哪都能播放的音乐文件。**
 
-QQ 音乐下载完成后，BetterDownload 在本地还原原始 FLAC / OGG，<br>
-保留歌曲信息，补入可用的本地封面。原音质和原文件都保留。
-
-[下载测试版](https://github.com/xiaoming6680/QQM-BetterDownload/releases) · [安装与使用](#安装与使用) · [更新记录](CHANGELOG.md) · [问题反馈](https://github.com/xiaoming6680/QQM-BetterDownload/issues)
+[下载](https://github.com/xiaoming6680/QQM-BetterDownload/releases) · [更新记录](CHANGELOG.md) · [问题反馈](https://github.com/xiaoming6680/QQM-BetterDownload/issues)
 
 </div>
 
-> 开发预览版。已验证 QQ 音乐 22.71 x86 的整曲 FLAC 转换；透明入口、内嵌 HTML 设置和卡片已进行实机检查。新下载到自动转换的完整流程仍待验收。安装包目前以测试版（预发布）形式在 [Releases](https://github.com/xiaoming6680/QQM-BetterDownload/releases) 提供。
+> 测试版，已在 QQ 音乐 22.71（Windows）上验证。非官方工具，仅供个人使用。
 
-## 为什么需要它
+## 它能做什么
 
-QQ 音乐的部分 VIP 下载保存为加密的 `.mflac`、`.mgg` 文件。想放到车机、手机或其他播放器里，或者整理自己的音乐库，还需要转换一步。
+QQ 音乐的 VIP 歌曲和高音质下载是加密文件，只能在 QQ 音乐里播放。装上 BetterDownload 后，每首歌下载完成都会自动转换成普通音乐文件，放在下载目录的 `VipSongsDownload\unlock` 里，车机、手机和其他播放器都能直接用。
 
-BetterDownload 将这一步接到下载完成事件上：收到最终文件路径后自动排队，转换结果保存到 `unlock`。
+- **原音质**：直接还原，不重新编码
+- **信息完整**：保留标题、歌手、专辑，补上封面和歌词
+- **原文件保留**：加密的原文件不动
+- **完全本地**：不上传歌曲，不读取账号信息；只有点“检查更新”时才联网
 
-## 它是怎么工作的
+| 下载音质 | 加密文件 | 转换后 |
+| --- | --- | --- |
+| 标准、HQ | `.mgg` | OGG |
+| SQ 无损、臻品全景声、臻品母带 | `.mflac` | FLAC |
+| 杜比全景声 | `.mmp4` | MP4（尚未用真实下载验证） |
 
-```mermaid
-flowchart LR
-    A["在 QQ 音乐下载 VIP 歌曲"] --> B["下载完成事件"]
-    B --> C["BetterDownload<br>在本地自动转换"]
-    C --> D["unlock 文件夹<br>FLAC / OGG + 歌曲信息"]
-```
+普通歌曲的标准、HQ、SQ 下载本来就不加密，不需要转换。
 
-```text
-D:/Music/VipSongsDownload/歌手/歌曲.mflac
-→ D:/Music/VipSongsDownload/unlock/歌手/歌曲.flac
-```
+## 安装
 
-- **原音质**：直接还原原始音频，不重新编码；完成后校验音频完整性。
-- **歌曲信息**：沿用标题、歌手、专辑等标签，保留内嵌封面，也可从本地缓存精确匹配补入。
-- **原文件保留**：输出保留子文件夹，遇到同名文件编号另存，已完成且未改变的文件自动跳过。
-- **完全本地**：不上传歌曲，不读取登录令牌，不联网获取歌曲密钥或补图。只有在设置页点击“检查更新”时才访问 GitHub，查询最新发布版本。
-- **自动识别路径**：从 QQ 音乐成功的文件操作获取新下载的最终位置，记住对应下载目录。启动时补处理已知目录中的已有下载。
+1. 从 [Releases](https://github.com/xiaoming6680/QQM-BetterDownload/releases) 下载 `BetterDownload-Setup.exe`，运行后点击“安装”。
+2. 像平常一样在 QQ 音乐里下载歌曲，下载完成后会自动转换。
 
-## 进度卡片
+需要 Windows 10 / 11 和 QQ 音乐 PC 版。不需要管理员权限，也不改动 QQ 音乐的文件。安装包暂未签名，Windows 提示“未知发布者”时选择“仍要运行”。
 
-转换时在 **QQ 音乐内部右下角** 弹出卡片，显示封面、格式与进度。卡片跟随 QQ 音乐的浅色风格（白底、品牌绿点缀），随应用隐藏，并在停留结束后收起。
+- **更新**：下载新版安装器运行即可。建议先退出 QQ 音乐，否则新版本会在 QQ 退出后生效。
+- **卸载**：在 Windows“已安装的应用”里，或设置页底部点“卸载”。默认保留歌曲和设置。
+
+<p align="center"><img src="docs/images/setup.png" alt="BetterDownload 安装器" width="640"></p>
+
+## 使用
+
+转换时，QQ 音乐右下角会弹出卡片显示进度；连续转换多首时合并在同一张卡片里。
 
 <table>
 <tr>
-<td><img src="docs/images/card-converting.png" alt="标准卡片：封面、格式与转换进度" width="380"></td>
-<td><img src="docs/images/card-complete.png" alt="完成卡片：打开输出文件夹" width="380"></td>
+<td><img src="docs/images/card-converting.png" alt="转换中的卡片" width="380"></td>
+<td><img src="docs/images/card-complete.png" alt="转换完成的卡片" width="380"></td>
 </tr>
-<tr><td align="center">转换中</td><td align="center">转换完成</td></tr>
-<tr>
-<td><img src="docs/images/card-compact.png" alt="简洁卡片" width="380"></td>
-<td><img src="docs/images/card-error.png" alt="错误卡片" width="380"></td>
-</tr>
-<tr><td align="center">简洁样式</td><td align="center">出错提示</td></tr>
 </table>
 
-鼠标悬停时保持显示，移开后重新计时；右键可提前收起。可选择“每首歌 / 仅出错 / 不显示”，以及 2 / 4 / 6 秒停留时间。
+点击 QQ 音乐右上角的 BetterDownload 图标（带小锁的下载箭头）打开设置：
 
-> 卡片图由程序真实控件渲染，使用虚构歌曲和示意封面。
+<p align="center"><img src="docs/images/settings.png" alt="BetterDownload 设置页" width="640"></p>
 
-## 设置页
-
-沿用网易云版的 HTML 设计与文案，配色与 LOGO 一致：取自 QQ 音乐标志的青绿渐变。页面由 QQ 音乐进程内的原生 HTML 控件承载，入口与卡片也交给客户端自己的 GF 界面框架绘制。
-
-右上角入口贴合 QQ 顶栏原生按钮：单色线性图标，鼠标在图标上时悬停 / 按下变主题绿。收放侧栏时，设置页随内容区域调整；点击侧栏导航，或左下角的菜单（设置）、换肤等按钮时自动退出设置。
-
-<p align="center"><img src="docs/images/settings.png" alt="BetterDownload 内置 HTML 设置页，使用示例状态" width="640"></p>
-
-- **自动转换**：安装后默认开启，无需填写安装、下载或缓存路径。
-- **转换已有下载**：点击“查找并转换”，结果直接显示在按钮旁；无目录、无文件或查找失败都有提示。
-- **进度卡片**：调整弹出时机、样式和停留时间，点击“预览”查看示例。
-- **检查更新**：右上角的按钮，位置参照 BetterNCM。点击后向 GitHub 查询最新发布版本（包括测试版），按钮上直接显示“已是最新”或“下载 vX”，几秒后恢复为“检查更新”，可再次检查；点“下载 vX”打开发布页，下载新的安装器运行即可更新。不会自动检查，也不会在后台下载或运行任何程序。
-- **首次使用说明**：第一次打开设置时先显示介绍与免责声明（非官方工具、仅供个人使用、风险自负、不提供担保），点“同意并继续”后进入设置，之后不再出现；页脚“免责声明”可随时重读。不同意可直接卸载。
-- **卸载**：页脚最后的“卸载”打开安装器的卸载确认，可选择同时删除插件数据，见下文。
-
-## 安装与使用
-
-只需要一个文件：从 [Releases](https://github.com/xiaoming6680/QQM-BetterDownload/releases) 下载的 `BetterDownload-Setup.exe`。程序、接入组件、依赖库和许可证都已内嵌，安装时逐个校验 SHA-256；不需要管理员权限，也不改动 QQ 音乐安装目录。
-
-<p align="center"><img src="docs/images/setup.png" alt="BetterDownload 安装器：浅色的首次安装界面与深色的安装完成界面" width="760"></p>
-
-需要 Windows 10 / 11（自带 .NET Framework 4.6.2 或更高版本）。已在 QQ 音乐 22.71 x86 上实测，其他版本见 [兼容性与客户端更新](#兼容性与客户端更新)；QQ 音乐装在任意磁盘均可识别。
-
-1. 运行 `BetterDownload-Setup.exe`，点击“安装”，完成后点击“完成”关闭窗口。
-2. 正常打开 QQ 音乐并下载你有下载权限的歌曲。新下载自动处理，不需要逐首点击转换。
-3. 结果在原下载目录下的 `VipSongsDownload/unlock`；完成卡片可打开输出文件夹。
-4. 设置只在 QQ 音乐里打开：点击右上角的 BetterDownload 图标（带小锁的下载箭头），再次点击图标或按 Esc 返回。界面尚未适配的 QQ 音乐版本上，按 Alt+空格 打开窗口菜单，选择“BetterDownload 设置”。
-
-安装器只负责安装、更新、修复和卸载，不能打开设置，也不创建开始菜单快捷方式；旧版留下的“BetterDownload 设置”快捷方式会在更新时移除。窗口跟随 Windows 浅色 / 深色模式，列出安装包版本、已安装版本、QQ 音乐的适配情况和设置入口的位置。
-
-大按钮始终是推荐的下一步：未安装时是“安装”，有新版本时是“更新到 vX”，文件损坏时是“修复”，其余情况是“完成”。“修复”和“卸载”是下方的文字按钮；卸载前在窗口内确认，默认保留歌曲、设置和转换记录，勾选“同时删除插件数据”则一并删除设置、转换记录和缓存（歌曲仍保留）。安装后也可以在 Windows“已安装的应用”中找到 BetterDownload：“修改”打开同一个安装器窗口，“卸载”进入卸载确认；设置页页脚的“卸载”也打开这一页。BetterDownload 不常驻系统托盘。
-
-安装包尚未代码签名，从网络下载后首次运行时 Windows SmartScreen 可能提示“未知发布者”，选择“仍要运行”即可。安装器会移除自己复制到用户目录的文件上的下载标记，开机自动启动不会再被安全提示拦截。也可以按 [开发说明](docs/BUILD.md) 从源码构建安装器。
-
-如果之前把歌曲下载到一个尚未记录的自定义目录，先在该目录正常下载一首歌曲，程序会记住位置并补处理已有文件。默认 Windows 下载目录中的 `VipSongsDownload` 会自动识别。程序不遍历整个磁盘，也不处理播放缓存。
-
-安装器会注册当前用户的 Windows 登录自动启动。后台等待 QQ 音乐打开后接入，客户端退出后继续等待下次启动。更新 BetterDownload 时，如果 QQ 音乐仍占用旧接入组件，新版本会暂存，待 QQ 音乐正常退出后生效。
-
-## 兼容性与客户端更新
-
-| 部分 | 当前范围 |
-| --- | --- |
-| QQ 音乐 22.71 x86 · musicex V1 FLAC | 已用真实歌曲整曲验证，PCM 校验通过 |
-| 其他 QQ 音乐版本 | 组件按代码识别：与 22.71 代码相同的版本直接适用；未实测的新组件在签名和接口检查通过后自动启用，并逐项校验结果。尚无其他版本实测 |
-| 标签和本地封面 | 已验证标签读取与封面写入 |
-| QTag / QMC2 V1 文件内密钥 | 原创夹具验证；尚无旧客户端实测 |
-| OGG | 已实现校验，真实下载样本待验收 |
-| M4A / MP3 / QMC1 | 暂未支持 |
-| 进程内设置与卡片 | 22.71 x86 已显示原生入口、HTML 设置和右下角卡片；最新交互修正待实机复测。界面未适配时改用独立设置窗口，卡片显示在 QQ 音乐窗口右下角 |
-| 下载事件与路径记忆 | 独立宿主与合成下载测试通过；真实新下载全流程待验收 |
-
-一个 QQ 音乐版本能否使用，分三层判断：
-
-- **解密算法**：各版本相同，不需要适配。
-- **本地密钥接口**：新格式下载需要。按 `CommonFunction.dll` 去掉签名后的代码识别。22.71 带的这一版是 2024 年 2 月编译的，只是后来重新签过名，代码相同的版本直接使用。未实测的组件必须带有效的腾讯签名和同一接口，才会在独立的子进程中调用，结果全部校验通过后才启用。不满足时，新格式下载保留等待适配；文件内自带密钥的旧格式照常转换。
-- **QQ 内的入口、设置和卡片**：依赖 QQ 私有的界面接口。`GF.dll` 和 `Common.dll` 与实测代码一致时启用，否则改用独立窗口。
-
-接入组件位于用户目录，QQ 音乐重启后会自动重新连接，不需要向客户端目录重复复制 DLL。
-
-**在线适配清单与自动更新服务尚未实现**，腾讯改动密钥方案或界面组件时仍需发布适配更新。识别方法、各时期客户端和验收步骤见 [兼容性说明](docs/COMPATIBILITY.md)。
+- **自动转换**：默认开启，不用设置任何路径。
+- **查找并转换**：补上以前下载、还没转换的歌，按钮旁会说明找到了什么、处理结果如何。
+- **写入歌词**：把 QQ 音乐下载的歌词写进文件，需要在 QQ 设置里勾选“同时下载歌词”；也可以另存 `.lrc` 文件。
+- **进度卡片**：选择弹出时机、样式和停留时间。
+- **检查更新**：点击时查询是否有新版本。
 
 ## 常见问题
 
 <details>
-<summary>“查找并转换”没有找到歌曲怎么办？</summary>
+<summary>转换好的歌在哪里？</summary>
 
-先看按钮旁的结果。尚未识别下载目录时，在 QQ 音乐里正常下载一首即可记录位置；没有需要转换的文件时不产生输出。新格式需要本机保存对应密钥，缺失时会保留原文件和待处理任务。
-
-</details>
-
-<details>
-<summary>下载路径、分类或命名方式变了怎么办？</summary>
-
-新下载事件直接提供最终路径，无需从文件名反推歌曲。歌手或专辑子目录保留到输出中。当前仅处理本地 `VipSongsDownload` 中的受支持加密文件，目录链接和网络路径不在处理范围内。
+在 QQ 音乐下载目录的 `VipSongsDownload\unlock` 里，原来的子文件夹结构不变，例如 `VipSongsDownload\歌手\歌曲.mflac` 会转换为 `VipSongsDownload\unlock\歌手\歌曲.flac`。完成卡片上的“打开文件夹”可以直接打开。
 
 </details>
 
 <details>
-<summary>为什么没有卡片或封面？</summary>
+<summary>“查找并转换”没有找到歌曲？</summary>
 
-普通音频不需要转换；检查卡片是否设为“仅出错”或“不显示”。封面使用音频内嵌图片或精确匹配的本地缓存，找不到时照常输出完整音频。
+先看按钮旁的说明。如果还没识别到下载目录，在 QQ 音乐里正常下载一首歌，BetterDownload 就会记住这个目录。已经转换过的歌不会重复转换；想重新转换，删掉 `unlock` 里对应的文件再查找。
 
 </details>
 
-## 开发者
+<details>
+<summary>为什么没有封面或歌词？</summary>
 
-```powershell
-.\scripts\build.ps1
-.\scripts\build-native.ps1 -Tests
-.\scripts\build.ps1 -Tests
-.\build\tests.exe
-.\scripts\build-setup.ps1 -SkipBuild
-.\scripts\check-repo.ps1
-```
+封面来自 QQ 音乐的本地图片缓存，歌词来自 QQ 随歌曲下载的 `.lrc`（需要勾选“同时下载歌词”）。找不到时，照常输出完整的音频。
 
-目前通过 **217 项程序检查** 和 **27 项安装器检查**，覆盖转换、自动路径、主窗口识别与最小化、安装路径可见性、旧版快捷方式清理、卸载时可选删除数据（只删自有文件、不经过链接）、本地页面通信、检查更新的结果解析与按钮恢复（不联网）、卡片连续切换样式与状态的逐像素比对、跨版本组件识别与隔离调用、独立设置窗口、独立 HTML 预览及关闭回归。`.\build\tests.exe --real-client <QQ 音乐安装目录>` 可在本机核对真实组件，不输出密钥和文件名。正式安装版已验证 QQ 音乐退出重开后恢复入口；其余私有 GF 界面的实际绘制效果另行实机验收，不能由这些检查代替。工具链与依赖下载到忽略目录并校验固定哈希；真实歌曲、配置、密钥和研究资料不进入仓库。
+</details>
 
-LOGO 是青绿渐变圆角方块上的白色下载箭头与黄色解锁锁头，配色取自 QQ 音乐标志。封面与应用 / 安装器图标由 [同一份 HTML / SVG 源码](promo/cover.html) 程序化渲染，设置页标志使用相同的矢量和配色，生成方法见 [开发说明](docs/BUILD.md)。更多结果见 [验证记录](docs/VALIDATION.md) 和 [验收清单](docs/ACCEPTANCE.md)。
+<details>
+<summary>看不到右上角的图标？</summary>
+
+QQ 音乐版本较新、界面还没适配时，按 Alt+空格 打开窗口菜单，选择“BetterDownload 设置”。自动转换不受影响。
+
+</details>
+
+<details>
+<summary>QQ 音乐更新后还能用吗？</summary>
+
+大多数更新不受影响。如果新版改动了相关组件，需要等 BetterDownload 发布适配更新；在此之前下载的原文件都会保留，适配后用“查找并转换”补上即可。
+
+</details>
+
+## 开发
+
+从源码构建、兼容性细节和验证记录见 [开发说明](docs/BUILD.md)、[兼容性说明](docs/COMPATIBILITY.md) 和 [验证记录](docs/VALIDATION.md)。
 
 ## 开源协议
 
-GPL-3.0。第三方许可及参考项目见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
-
-作者 [XIAOMING6680](https://github.com/xiaoming6680)。仓库名为 `QQM-BetterDownload`，软件名称为 **BetterDownload**。
+GPL-3.0，第三方许可见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。作者 [XIAOMING6680](https://github.com/xiaoming6680)。

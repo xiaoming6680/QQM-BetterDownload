@@ -23,6 +23,12 @@ namespace QqmBetterDownload {
                 check(Script(page,"document.querySelector('[data-toggle]').getAttribute('aria-checked')==='false' && document.querySelector('[data-scan]').disabled")=="true","toggle and disabled scan must round-trip");
                 Script(page,"document.querySelector('[data-toggle]').click();document.querySelector('[data-card-style] [data-value=compact]').click()");Pump(100);
                 check(Script(page,"document.querySelector('[data-card-style] [data-value=compact]').getAttribute('aria-checked')==='true'")=="true","card style must round-trip");
+                check(Script(page,"document.querySelector('[data-switch=lyrics]').getAttribute('aria-checked')==='true' && !document.querySelector('[data-switch=lyrics-file]').disabled")=="true","lyrics are written by default and the .lrc option is available");
+                Script(page,"document.querySelector('[data-switch=lyrics-file]').click()");Pump(100);
+                check(Script(page,"document.querySelector('[data-switch=lyrics-file]').getAttribute('aria-checked')==='true'")=="true",".lrc option must round-trip");
+                Script(page,"document.querySelector('[data-switch=lyrics]').click()");Pump(100);
+                check(Script(page,"document.querySelector('[data-switch=lyrics]').getAttribute('aria-checked')==='false' && document.querySelector('[data-switch=lyrics-file]').disabled && document.querySelector('[data-lyrics-option]').getAttribute('aria-disabled')==='true'")=="true","turning lyrics off disables the .lrc option");
+                Script(page,"document.querySelector('[data-switch=lyrics]').click()");Pump(100);
                 Script(page,"document.querySelector('[data-scan]').click()");Pump(100);
                 check(Script(page,"document.querySelector('[data-scan-note]').textContent.indexOf('预览模式')>=0")=="true","scan action must show its result");
                 Script(page,"document.querySelector('[data-preview]').click()");Pump(150);check(page.CardPresented,"preview action must reach the card presenter");

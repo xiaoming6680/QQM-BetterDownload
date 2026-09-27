@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -16,9 +17,9 @@ namespace QqmBetterDownload {
         internal static void Run(Action<bool,string> check, string folder) {
             string html;
             using (var input = typeof(Program).Assembly.GetManifestResourceStream("settings.html")) using (var reader = new StreamReader(input)) html = reader.ReadToEnd();
-            int ready = 0, agreed = 0, declined = 0;
+            int ready = 0, agreed = 0, declined = 0; var sent = new System.Collections.Generic.List<string>();
             const string state = "{\"version\":\"test\",\"visible\":true,\"openSequence\":1,\"enabled\":true,\"notify\":\"all\",\"style\":\"standard\",\"stay\":4000,\"state\":\"watching\",\"history\":[],\"intro\":true}";
-            using (var server = new LocalPageServer(html, delegate(string name, string value) { if (name == "ready") Interlocked.Increment(ref ready); if (name == "intro-accept") Interlocked.Increment(ref agreed); if (name == "uninstall") Interlocked.Increment(ref declined); }))
+            using (var server = new LocalPageServer(html, delegate(string name, string value) { lock (sent) sent.Add(name); if (name == "ready") Interlocked.Increment(ref ready); if (name == "intro-accept") Interlocked.Increment(ref agreed); if (name == "uninstall") Interlocked.Increment(ref declined); }))
             using (var icon = BrandIcon.Load())
             using (var window = new FallbackWindow(server.Url, Path.Combine(folder, "intro-webview"), icon, 1)) {
                 window.StartPosition = FormStartPosition.Manual; window.Location = new Point(-10000, -10000); window.ShowInTaskbar = false;
@@ -45,6 +46,17 @@ namespace QqmBetterDownload {
                 server.Publish(state.Replace("watching", "scanning")); Pump(500);
                 check(Script(window, "document.body.getAttribute('data-view')") == "\"settings\"", "a state published before the agreement cannot reopen the notice");
                 check(Volatile.Read(ref agreed) == 1, "the agreement is sent once");
+                // Every settings control must be an action this server accepts; a
+                // rejected one only shows "连接暂时中断" inside QQ Music.
+                server.Publish(state.Replace("\"intro\":true", "\"intro\":false,\"lyrics\":true,\"lyricsFile\":false")); Pump(500);
+                lock (sent) sent.Clear();
+                // One at a time, as a person clicks: the server keeps at most eight connections.
+                foreach (string[] control in new[] { new[] { "[data-toggle]", "toggle" }, new[] { "[data-scan]", "scan" }, new[] { "[data-preview]", "preview" }, new[] { "[data-switch=lyrics]", "lyrics" }, new[] { "[data-switch=lyrics-file]", "lyrics-file" },
+                        new[] { "[data-notify] [data-value=errors]", "notify" }, new[] { "[data-card-style] [data-value=compact]", "style" }, new[] { "[data-card-stay] [data-value=\"6000\"]", "stay" } }) {
+                    Script(window, "document.querySelector('" + control[0] + "').click();1");
+                    Until(() => { lock (sent) return sent.Contains(control[1]); }, 5000, () => "control " + control[1]);
+                }
+                check(Script(window, "document.querySelector('[data-detail]').textContent") == "\"\"", "every settings control is accepted by the loopback server");
                 window.Shutdown(); Pump(100);
             }
         }

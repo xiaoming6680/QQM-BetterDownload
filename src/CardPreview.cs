@@ -54,22 +54,33 @@ namespace QqmBetterDownload {
             Directory.CreateDirectory(folder);
             string[] files = { "card-converting.png", "card-complete.png", "card-compact.png", "card-error.png" };
             for (int i = 0; i < files.Length; i++) {
-                bool compact = i == 2;
                 var activity = new WorkStatus {
                     Id = "readme-" + i, State = i == 1 ? "success" : i == 3 ? "error" : "converting",
                     Source = "示例歌曲.mflac", Output = i == 1 ? @"D:\Music\VipSongsDownload\unlock\夜间来信.flac" : "",
                     Percent = i == 1 ? 100 : 64, Message = i == 3 ? "当前客户端接口尚未适配。下载任务已保留，请等待适配更新。" : "正在转换",
                     Track = new TrackInfo { Title = "夜间来信", Artist = "示例歌手", Format = "FLAC" }
                 };
-                var card = new CardView(null); card.Update(activity, compact, i == 3 ? null : SampleCover());
-                const int width = 364, height = 236;
-                var canvas = new Canvas { Width = width, Height = height, Background = new LinearGradientBrush(Color.FromRgb(243, 247, 245), Color.FromRgb(232, 239, 235), 90) };
-                card.Measure(new Size(CardView.CardWidth, height)); Put(canvas, card, (width - CardView.CardWidth) / 2, (height - card.DesiredSize.Height) / 2);
-                canvas.Measure(new Size(width, height)); canvas.Arrange(new Rect(0, 0, width, height)); canvas.UpdateLayout(); card.FreezeProgress();
-                var bitmap = new RenderTargetBitmap(width * 2, height * 2, 192, 192, PixelFormats.Pbgra32); bitmap.Render(canvas);
-                var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
-                using (var file = File.Create(Path.Combine(folder, files[i]))) png.Save(file);
+                SaveRow(Path.Combine(folder, files[i]), i == 2, i == 3 ? null : SampleCover(), activity);
             }
+            // A round: songs converted back to back share one card, then sum up.
+            SaveRow(Path.Combine(folder, "card-batch.png"), false, SampleCover(),
+                new WorkStatus { Id = "readme-batch", Round = "readme", State = "converting", Source = "示例歌曲.mflac", Percent = 64, Position = 2, Pending = 4, Message = "正在转换", Track = new TrackInfo { Title = "夜间来信", Artist = "示例歌手", Format = "FLAC" } },
+                new WorkStatus { Id = "readme-batch", Round = "readme", State = "success", Source = "示例歌曲.mflac", Output = @"D:\Music\VipSongsDownload\unlock\晚风.flac", Percent = 100, Position = 5, Converted = 5, Lyrics = true, Message = "转换完成", Track = new TrackInfo { Title = "晚风", Artist = "示例歌手", Format = "FLAC" } });
+        }
+        // Cards side by side, each centred in its own 364 x 236 slot.
+        static void SaveRow(string path, bool compact, ImageSource cover, params WorkStatus[] activities) {
+            const int slot = 364, height = 236; int width = slot * activities.Length;
+            var canvas = new Canvas { Width = width, Height = height, Background = new LinearGradientBrush(Color.FromRgb(243, 247, 245), Color.FromRgb(232, 239, 235), 90) };
+            var cards = new CardView[activities.Length];
+            for (int i = 0; i < activities.Length; i++) {
+                cards[i] = new CardView(null); cards[i].Update(activities[i], compact, cover);
+                cards[i].Measure(new Size(CardView.CardWidth, height)); Put(canvas, cards[i], i * slot + (slot - CardView.CardWidth) / 2, (height - cards[i].DesiredSize.Height) / 2);
+            }
+            canvas.Measure(new Size(width, height)); canvas.Arrange(new Rect(0, 0, width, height)); canvas.UpdateLayout();
+            foreach (var card in cards) card.FreezeProgress();
+            var bitmap = new RenderTargetBitmap(width * 2, height * 2, 192, 192, PixelFormats.Pbgra32); bitmap.Render(canvas);
+            var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
+            using (var file = File.Create(path)) png.Save(file);
         }
     }
 }

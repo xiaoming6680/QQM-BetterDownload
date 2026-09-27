@@ -10,7 +10,13 @@ namespace QqmBetterDownload {
         public string State, Message, Source = "", Output = "";
         public string Id = "", Warning = "";
         [System.Web.Script.Serialization.ScriptIgnore] public TrackInfo Track;
+        // Pending counts this song while it converts, then the songs after it.
         public int Percent, Pending;
+        // Songs converted back to back share one card. Round is its id ("" outside
+        // one), Position this song's place in it, Folder the outputs' common folder.
+        public string Round = "", Folder = "";
+        public int Position, Converted, Failed;
+        public bool Lyrics;
     }
     public sealed class Engine : IDownloadMonitor {
         sealed class PendingFile { public string Signature = ""; public DateTime Next; public int Attempts; public bool Dormant; public string LastMessage = ""; public readonly string Id = Guid.NewGuid().ToString("N"); }
@@ -51,6 +57,7 @@ namespace QqmBetterDownload {
         }
         public void ScanExisting() { lock (gate) scan = true; wake.Set(); }
         public string Notice { get { return localKeys.Notice; } }
+        public void Configure(bool lyrics, bool lyricsFile) { converter.Lyrics = lyrics; converter.LyricsFile = lyricsFile; }
         void Emit(string state, string message, string source, string output, int percent, string id = "", TrackInfo track = null, string warning = "") {
             int count; lock (gate) count = pending.Count;
             if (report != null) report(new WorkStatus { State = state, Message = message, Source = source, Output = output, Percent = percent, Pending = count, Id = id, Track = track, Warning = warning });

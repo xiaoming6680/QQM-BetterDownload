@@ -100,7 +100,7 @@ namespace QqmBetterDownload {
                         object command, value;
                         if (data == null || !data.TryGetValue("action", out command) || !(command is string)) { Reply(stream, 400, "text/plain", "Bad request"); return; }
                         data.TryGetValue("value", out value);
-                        if (Array.IndexOf(new[] { "ready", "close", "preview", "project", "issues", "open", "scan", "toggle", "notify", "style", "stay", "update-check", "update-open", "intro-accept", "uninstall" }, (string)command) < 0 || (value != null && !(value is string))) { Reply(stream, 400, "text/plain", "Bad request"); return; }
+                        if (Array.IndexOf(new[] { "ready", "close", "preview", "project", "issues", "open", "scan", "toggle", "notify", "style", "stay", "update-check", "update-open", "intro-accept", "uninstall", "lyrics", "lyrics-file" }, (string)command) < 0 || (value != null && !(value is string))) { Reply(stream, 400, "text/plain", "Bad request"); return; }
                         if (!closed) action((string)command, value as string);
                         Reply(stream, 202, "application/json", "{}");
                     } else Reply(stream, 404, "text/plain", "Not found");

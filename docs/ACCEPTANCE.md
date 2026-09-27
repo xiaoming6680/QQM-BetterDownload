@@ -48,7 +48,7 @@
 
 首次使用时，默认 Windows 下载目录中的 `VipSongsDownload` 会自动识别。自定义的旧目录需通过新下载事件记录，记录后无需重复选择。
 
-真实音频当前仅实测 QQ 音乐 22.71 x86 的 musicex V1 FLAC。旧 QTag / QMC2 V1 通过合成夹具验证；OGG 缺少真实样本。MP3、M4A、QMC1 暂未支持。
+真实音频已实测 QQ 音乐 22.71 x86 的 FLAC（SQ、臻品全景声、臻品母带）和 OGG（标准、HQ）。杜比全景声 MP4 和旧 QTag / QMC2 V1 仅通过合成夹具验证。MP3、M4A、QMC1 暂未支持。
 
 ## 跨版本兼容
 

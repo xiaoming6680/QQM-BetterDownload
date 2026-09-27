@@ -30,16 +30,20 @@ namespace QqmBetterDownload {
             if (status.State == "skipped") { if (id == identity) Hide(); return false; }
             if (status.State != "converting" && status.State != "waiting" && status.State != "success" && status.State != "error") return false;
             if (!force && (mode == "off" || (mode == "errors" && status.State != "error"))) { Hide(); return false; }
+            // Songs of one round share the card, and only its last song ends it,
+            // so a batch neither pops up per song nor returns once dismissed.
+            bool grouped = mode == "all" && !force && !String.IsNullOrEmpty(status.Round);
+            if (grouped) id = "round:" + status.Round;
             if (String.IsNullOrEmpty(id)) id = "system:" + status.Message;
             bool changed = id != identity;
             if (changed) { identity = id; dismissed = false; successShown = errorShown = false; }
-            bool terminal = status.State == "success" || status.State == "error";
+            bool terminal = (status.State == "success" || status.State == "error") && (!grouped || status.Pending == 0);
             // Completion can appear once after a long conversion was dismissed.
             // Subsequent progress/metadata updates never restart the hide timer.
             bool terminalShown = status.State == "success" ? successShown : errorShown;
             bool show = (changed && !dismissed) || (terminal && !terminalShown);
-            if (status.State == "success") successShown = true;
-            if (status.State == "error") errorShown = true;
+            if (terminal && status.State == "success") successShown = true;
+            if (terminal && status.State == "error") errorShown = true;
             if (show) Visible = true;
             return show;
         }
@@ -100,12 +104,16 @@ namespace QqmBetterDownload {
             if (String.IsNullOrEmpty(ext) && done && !String.IsNullOrEmpty(activity.Output)) ext = Path.GetExtension(activity.Output).TrimStart('.').ToUpperInvariant();
             format.Text = ext; formatBadge.Visibility = String.IsNullOrEmpty(ext) || error ? Visibility.Collapsed : Visibility.Visible;
             string artist = info == null ? "" : info.Artist;
-            string lineText = error || waiting ? activity.Message : done ? (artist.Length > 0 ? artist + " · 原音质已保留" : "原音质已保留 · 音乐已就绪")
-                : activity.Percent >= 90 ? activity.Message : activity.Pending > 1 ? "还剩 " + (activity.Pending - 1) + " 首 · 正在转换" : artist.Length > 0 ? artist + " · 正在整理音频" : "正在整理音频与封面";
+            bool round = activity.Position > 1 || (activity.Position > 0 && activity.Pending > 1);
+            string lineText = error || waiting ? activity.Message
+                : done ? (activity.Lyrics ? "原音质已保留 · 歌词已写入" : artist.Length > 0 ? artist + " · 原音质已保留" : "原音质已保留 · 音乐已就绪")
+                : activity.Percent >= 90 ? activity.Message
+                : round ? "第 " + activity.Position + " 首" + (activity.Pending > 1 ? " · 还剩 " + (activity.Pending - 1) + " 首" : "")
+                : activity.Pending > 1 ? "还剩 " + (activity.Pending - 1) + " 首 · 正在转换" : artist.Length > 0 ? artist + " · 正在整理音频" : "正在整理音频与封面";
             detail.Text = lineText; detail.ToolTip = lineText;
             notice.Text = done && !String.IsNullOrEmpty(activity.Warning) ? ShortWarning(activity.Warning) : "";
             notice.ToolTip = activity.Warning; notice.Visibility = notice.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-            summary.Text = "原文件已保留";
+            summary.Text = activity.Converted + activity.Failed > 1 ? "本轮 " + activity.Converted + " 首" + (activity.Failed > 0 ? " · " + activity.Failed + " 首未完成" : "") : "原文件已保留";
             folder.Visibility = done && !String.IsNullOrEmpty(activity.Output) ? Visibility.Visible : Visibility.Collapsed;
             int value = Math.Max(0, Math.Min(99, activity.Percent));
             percent.Text = value + "%"; percent.Visibility = value == 0 || waiting ? Visibility.Collapsed : Visibility.Visible;
@@ -117,6 +125,8 @@ namespace QqmBetterDownload {
         static string ShortWarning(string warning) {
             if (warning.Contains("没有封面") || warning.Contains("未找到精确匹配")) return "无本地封面 · 音频已保存";
             if (warning.Contains("封面")) return "封面未写入 · 音频已保存";
+            if (warning.Contains("歌词未能写入")) return "歌词未写入 · 音频已保存";
+            if (warning.Contains("歌词文件")) return "歌词文件未保存 · 音频已保存";
             return warning;
         }
         void Build(bool done, bool error) {
@@ -267,7 +277,12 @@ namespace QqmBetterDownload {
         string mode = "all";
         bool compact, disposed, interacting;
         int stay = 4000;
-        DateTime deadline;
+        DateTime deadline, busyUntil;
+        // Same rule as the in-QQ card: a running conversion holds the countdown
+        // until its final frame, unless the worker stays silent this long.
+        internal static TimeSpan BusyGrace = TimeSpan.FromMinutes(1);
+        // Between songs of a round the next one normally starts within a second.
+        internal static TimeSpan QueueGrace = TimeSpan.FromSeconds(10);
         public ProgressCard(Func<IntPtr> anchorWindow, Action<string> onOpen) {
             anchor = anchorWindow; openFolder = onOpen;
             AllowsTransparency = true; WindowStyle = WindowStyle.None; Background = Brushes.Transparent;
@@ -288,7 +303,9 @@ namespace QqmBetterDownload {
             MouseRightButtonUp += delegate { Dismiss(); };
             SizeChanged += delegate { if (IsVisible) Position(); };
             timer.Tick += delegate {
-                if (IsVisible && !interacting && !IsMouseOver && !IsKeyboardFocusWithin && DateTime.UtcNow >= deadline) Dismiss();
+                DateTime now = DateTime.UtcNow;
+                if (now < busyUntil) deadline = now.AddMilliseconds(stay);
+                if (IsVisible && !interacting && !IsMouseOver && !IsKeyboardFocusWithin && now >= deadline) Dismiss();
             };
             System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(this);
         }
@@ -311,11 +328,14 @@ namespace QqmBetterDownload {
             latest = status;
             byte[] bytes = lastTrack == null ? null : lastTrack.Artwork;
             if (!Object.ReferenceEquals(bytes, artBytes)) { artBytes = bytes; art = CardView.LoadArt(bytes); }
+            busyUntil = status.State == "converting" ? DateTime.UtcNow + BusyGrace : status.Pending > 0 ? DateTime.UtcNow + QueueGrace : DateTime.MinValue;
             view.Update(status, compact, art);
             if (show) {
+                // A completion on a card still in view only restarts the stay.
+                bool entering = !IsVisible;
                 interacting = false; Opacity = 1; Show(); UpdateLayout(); Position(); Arm(); timer.Start();
-                if (SystemParameters.ClientAreaAnimation) BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)));
-                if (SystemParameters.ClientAreaAnimation) {
+                if (entering && SystemParameters.ClientAreaAnimation) BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220)));
+                if (entering && SystemParameters.ClientAreaAnimation) {
                     var shift = new TranslateTransform(); view.RenderTransform = shift;
                     shift.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(18, 0, TimeSpan.FromMilliseconds(360)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
                 }
@@ -325,7 +345,7 @@ namespace QqmBetterDownload {
         public void Dismiss() { session.Hide(); timer.Stop(); Hide(); }
         void Open() {
             if (latest == null || String.IsNullOrEmpty(latest.Output)) return;
-            try { if (openFolder != null) openFolder(Path.GetDirectoryName(latest.Output)); }
+            try { if (openFolder != null) openFolder(String.IsNullOrEmpty(latest.Folder) ? Path.GetDirectoryName(latest.Output) : latest.Folder); }
             finally { interacting = false; System.Windows.Input.Keyboard.ClearFocus(); Arm(); }
         }
         void Position() {

@@ -227,6 +227,18 @@ namespace BetterDownloadSetup {
             catch { return null; }
         }
         static bool ClientRunning() { var clients = Process.GetProcessesByName("QQMusic"); foreach (var p in clients) p.Dispose(); return clients.Length > 0; }
+        // Only a QQ Music that has loaded one of our bridges pins the current
+        // version. One reopened after the old agent quit has none yet, so the
+        // switch can go ahead and the new agent connects it. A client whose
+        // modules cannot be read counts as holding one.
+        static bool BridgeInUse() {
+            string versions = Path.Combine(Root, "versions") + "\\";
+            foreach (var client in Process.GetProcessesByName("QQMusic")) using (client) {
+                try { foreach (ProcessModule module in client.Modules) using (module) if (module.FileName.StartsWith(versions, StringComparison.OrdinalIgnoreCase)) return true; }
+                catch (Exception) { return true; }
+            }
+            return false;
+        }
         static string FindQqMusic() {
             foreach (var p in Process.GetProcessesByName("QQMusic")) using (p) { try { return Path.GetDirectoryName(p.MainModule.FileName); } catch (Exception) { } }
             // QQ Music can live on any drive; its installer records the location.
@@ -344,8 +356,8 @@ namespace BetterDownloadSetup {
         // then would restart the old agent instead of switching.
         static void ActivatePending(bool wait) {
             var state = Deployment.State(Root); if (String.IsNullOrEmpty(state.pending)) return;
-            for (int i = 0; wait && i < 40 && ClientRunning(); i++) Thread.Sleep(500);
-            if (ClientRunning()) return;
+            for (int i = 0; wait && i < 40 && BridgeInUse(); i++) Thread.Sleep(500);
+            if (BridgeInUse()) return;
             Deployment.Validate(Deployment.VersionPath(Root, state.pending)); Stop();
             state.previous = state.current; state.current = state.pending; state.pending = ""; Deployment.Write(Path.Combine(Root, "installation.json"), state);
         }
