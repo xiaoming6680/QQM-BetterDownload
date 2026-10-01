@@ -56,6 +56,8 @@ QQ 音乐的 VIP 歌曲和高音质下载是加密文件，只能在 QQ 音乐�
 
 点击 QQ 音乐右上角的 BetterDownload 图标（带小锁的下载箭头）打开设置：
 
+<p align="center"><img src="docs/images/entry.png" alt="设置入口在 QQ 音乐右上角" width="820"></p>
+
 <p align="center"><img src="docs/images/settings.png" alt="BetterDownload 设置页" width="640"></p>
 
 - **自动转换**：默认开启，不用设置任何路径。
